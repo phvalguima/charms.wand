@@ -1,8 +1,19 @@
-from ops.framework import Object, StoredState
+#  Licensed under the Apache License, Version 2.0 (the "License"); you may
+#  not use this file except in compliance with the License. You may obtain
+#  a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#  WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#  License for the specific language governing permissions and limitations
+#  under the License.
 
-from charmhelpers.contrib.network.ip import (
-    get_hostname
-)
+from ops.framework import Object
+from ops.framework import StoredState
+
+from charmhelpers.contrib.network.ip import get_hostname
 
 
 class ZookeeperRelation(Object):
@@ -26,7 +37,8 @@ class ZookeeperRelation(Object):
 
     @property
     def advertise_addr(self):
-        return self.model.get_binding(self._relation_name).network.ingress_address
+        return self.model.get_binding(self._relation_name) \
+               .network.ingress_address
 
     def on_zookeeper_relation_joined(self, event):
         pass
@@ -63,10 +75,9 @@ class ZookeeperProvidesRelation(ZookeeperRelation):
         super().on_zookeeper_relation_changed(event)
 
 
-# TODO: Generate the: zookeeper-tls-client.properties.j2
+# TODO(pguimaraes): Generate the: zookeeper-tls-client.properties.j2
 class ZookeeperRequiresRelation(ZookeeperRelation):
 
     def __init__(self, charm, relation_name):
         super().__init__(charm, relation_name)
         self.framework.observe(charm.on.zookeeper_relation_changed, self)
-
