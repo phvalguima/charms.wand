@@ -20,12 +20,12 @@ from ops.charm import CharmBase
 from ops.framework import StoredState
 from ops.model import BlockedStatus
 
-from ssl import genRandomPassword
+from .java_ssl import genRandomPassword
 
-from charmhelpers.fetch import apt_update
-from charmhelpers.fetch import add_source
-from charmhelpers.fetch import apt_install
-from charmhelpers.core import mount
+from charmhelpers.fetch.ubuntu import apt_update
+from charmhelpers.fetch.ubuntu import add_source
+from charmhelpers.fetch.ubuntu import apt_install
+from charmhelpers.core.host import mount
 
 logger = logging.getLogger(__name__)
 
