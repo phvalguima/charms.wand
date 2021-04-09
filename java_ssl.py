@@ -27,7 +27,7 @@ def _check_file_exists(path):
     return True
 
 
-def genRandomPassword(path):
+def genRandomPassword():
     return "".join(charsPassword[c % len(charsPassword)]
                    for c in os.urandom(PASSWORD_LEN))
 
