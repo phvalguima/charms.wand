@@ -20,7 +20,7 @@ from ops.charm import CharmBase
 from ops.framework import StoredState
 from ops.model import BlockedStatus
 
-from .java_ssl import genRandomPassword
+from wand.security.ssl import genRandomPassword
 
 from charmhelpers.fetch.ubuntu import apt_update
 from charmhelpers.fetch.ubuntu import add_source

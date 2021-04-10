@@ -14,28 +14,29 @@ import os
 import shutil
 import string
 import subprocess
+from OpenSSL import crypto
 
 CHARS_PASSWORD = string.ascii_letters + string.digits
 PASSWORD_LEN = 48
 
 
 def _break_crt_chain(buffer):
-    return [ i+"-----END CERTIFICATE-----\n" \
-           for i in crts.split("-----END CERTIFICATE-----\n") \
-           if i.startswith("-----BEGIN CERTIFICATE-----\n") ]
+    return [i+"-----END CERTIFICATE-----\n"
+            for i in buffer.split("-----END CERTIFICATE-----\n")
+            if i.startswith("-----BEGIN CERTIFICATE-----\n")]
 
 
 def saveCrtChainToFile(buffer,
                        cert_path,
                        ca_chain_path,
-                       user="root",
-                       group="root",
+                       user=None,
+                       group=None,
                        force=False):
     crts = _break_crt_chain(buffer)
     if _check_file_exists(cert_path) and not force:
         raise Exception("{} already exists, aborting".format(cert_path))
     if _check_file_exists(ca_chain_path) and not force:
-       raise Exception("{} already exists, aborting".format(ca_chain_path))
+        raise Exception("{} already exists, aborting".format(ca_chain_path))
     # cert_path can be set to None, and all the files will the
     # certificates will be saved to ca_chain_path
     if cert_path:
@@ -49,8 +50,9 @@ def saveCrtChainToFile(buffer,
         with open(cert_path, "w") as f:
             f.write(crts[0:])
             f.close()
-    setFilePermissions(path, user, group, mode=0o640)
-    setFilePermissions(path, user, group, mode=0o640)
+    if user and group:
+        setFilePermissions(cert_path, user, group, mode=0o640)
+        setFilePermissions(ca_chain_path, user, group, mode=0o640)
 
 
 def _check_file_exists(path):
@@ -61,9 +63,9 @@ def _check_file_exists(path):
     return True
 
 
-def genRandomPassword():
+def genRandomPassword(length=48):
     return "".join(CHARS_PASSWORD[c % len(CHARS_PASSWORD)]
-                   for c in os.urandom(PASSWORD_LEN))
+                   for c in os.urandom(length))
 
 
 def RegisterIfKeystoreExists(path):
@@ -80,7 +82,50 @@ def setFilePermissions(path, user, group, mode=None):
         os.chmod(path, mode)
 
 
-def SetTrustAndKeystoreFilePermissions(user, group, 
+def generateSelfSigned(folderpath=None,
+                       certname=None,
+                       keysize=4096,
+                       cn="*.example.com",
+                       user=None,
+                       group=None,
+                       mode=None):
+    key = crypto.PKey()
+    key.generate_key(crypto.TYPE_RSA, keysize)
+    cert = crypto.X509()
+    serNum = 0
+    valSecs = 10*365*24*60*60
+    x509name = cert.get_subject()
+    x509name.countryName = "UK"
+    x509name.stateOrProvinceName = "London"
+    x509name.organizationName = "TestWandUbuntu"
+    x509name.organizationalUnitName = "WandLib"
+    x509name.commonName = cn or "*.example.com"
+    cert.set_subject(x509name)
+    cert.set_serial_number(serNum)
+    cert.gmtime_adj_notBefore(0)
+    cert.gmtime_adj_notAfter(valSecs)
+    cert.set_pubkey(key)
+    cert.sign(key, 'sha512')
+    cname = certname or genRandomPassword(6)
+    folder = folderpath or "/tmp"
+    with open(os.path.join(folder, cname + ".crt"), "w") as f:
+        f.write(crypto.dump_certificate(
+            crypto.FILETYPE_PEM, cert).decode("utf-8"))
+        f.close()
+    with open(os.path.join(folder, cname + ".key"), "w") as f:
+        f.write(crypto.dump_privatekey(
+            crypto.FILETYPE_PEM, key).decode("utf-8"))
+        f.close()
+    if user and group:
+        setFilePermissions(folder + cname + ".crt", user, group, mode)
+        setFilePermissions(folder + cname + ".key", user, group, mode)
+    return (crypto.dump_certificate(
+               crypto.FILETYPE_PEM, cert).decode("utf-8"),
+            crypto.dump_privatekey(
+                crypto.FILETYPE_PEM, key).decode("utf-8"))
+
+
+def SetTrustAndKeystoreFilePermissions(user, group,
                                        keystore_path,
                                        truststore_path):
     shutil.chown(keystore_path, user=user, group=group)
@@ -102,6 +147,11 @@ def SetCertAndKeyFilePermissions(user, group,
 
 
 def PKCS12CreateKeystore(keystore_path, keystore_pwd, ssl_chain, ssl_key):
+    def __cleanup():
+        os.remove("/tmp/kafka-broker-charm.key")
+        os.remove("/tmp/kafka-broker-charm.p12")
+        os.remove("/tmp/kafka-broker-charm-cert.chain")
+
     try:
         with open("/tmp/kafka-broker-charm-cert.chain", "w") as f:
             f.write(ssl_chain)
@@ -124,17 +174,12 @@ def PKCS12CreateKeystore(keystore_path, keystore_pwd, ssl_chain, ssl_key):
     except Exception as e:
         # We've saved the key and cert to /tmp, we cannot leave it there
         # clean it up:
-        os.remove("/tmp/kafka-broker-charm.key")
-        os.remove("/tmp/kafka-broker-charm.p12")
-        os.remove("/tmp/kafka-broker-charm-cert.chain")
+        __cleanup()
         raise e
 
     # We've saved the key and cert to /tmp, we cannot leave it there
     # clean it up:
-    os.remove("/tmp/kafka-broker-charm.key")
-    os.remove("/tmp/kafka-broker-charm.p12")
-    os.remove("/tmp/kafka-broker-charm-cert.chain")
-
+    __cleanup()
 
 def CreateTruststoreWithCertificates(truststore_path, truststore_pwd, ssl_ca):
     crtpath = "/tmp/juju_ca_cert"
@@ -142,10 +187,11 @@ def CreateTruststoreWithCertificates(truststore_path, truststore_pwd, ssl_ca):
         with open(crtpath, "w") as f:
             f.write(c)
             f.close()
-        ts_cmd =["keytool", "-noprompt", "-keystore", truststore_path,
-                 "-storetype", "pkcs12", "-alias", "jujuCAChain",
-                 "-trustcacerts", "-import", "-file", crtpath, "-deststorepass",
-                 truststore_pwd]
+        ts_cmd = ["keytool", "-noprompt", "-keystore", truststore_path,
+                  "-storetype", "pkcs12", "-alias", "jujuCAChain",
+                  "-trustcacerts", "-import", "-file", crtpath,
+                  "-deststorepass", truststore_pwd]
+        subprocess.check_call(ts_cmd)
     os.remove(crtpath)
 
 
@@ -165,7 +211,22 @@ def CreateKeystoreAndTrustore(keystore_path,
         # return None as this option is not needed
         return None
     cert_chain = _break_crt_chain(ssl_cert_chain)
-    PKCS12CreateKeystore(keystore_path, keystore_pwd, cert_chain[0], ssl_key)
-    CreateTruststoreWithCertificates(truststore_path, truststore_pwd, cert_chain[1:])
-    setFilePermissions(keystore_path, user, group, mode)
-    setFilePermissions(truststore_path, user, group, mode)
+    if len(cert_chain) > 1:
+        PKCS12CreateKeystore(keystore_path,
+                             keystore_pwd,
+                             cert_chain[0],
+                             ssl_key)
+        CreateTruststoreWithCertificates(truststore_path,
+                                         truststore_pwd,
+                                         cert_chain[1:])
+    else:  # Self signed cert
+        PKCS12CreateKeystore(keystore_path,
+                             keystore_pwd,
+                             cert_chain[0],
+                             ssl_key)
+        CreateTruststoreWithCertificates(truststore_path,
+                                         truststore_pwd,
+                                         cert_chain[0])
+    if user and group:
+        setFilePermissions(keystore_path, user, group, mode)
+        setFilePermissions(truststore_path, user, group, mode)
