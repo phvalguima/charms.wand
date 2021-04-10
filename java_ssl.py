@@ -15,8 +15,42 @@ import shutil
 import string
 import subprocess
 
-charsPassword = string.ascii_letters + string.digits
+CHARS_PASSWORD = string.ascii_letters + string.digits
 PASSWORD_LEN = 48
+
+
+def _break_crt_chain(buffer):
+    return [ i+"-----END CERTIFICATE-----\n" \
+           for i in crts.split("-----END CERTIFICATE-----\n") \
+           if i.startswith("-----BEGIN CERTIFICATE-----\n") ]
+
+
+def saveCrtChainToFile(buffer,
+                       cert_path,
+                       ca_chain_path,
+                       user="root",
+                       group="root",
+                       force=False):
+    crts = _break_crt_chain(buffer)
+    if _check_file_exists(cert_path) and not force:
+        raise Exception("{} already exists, aborting".format(cert_path))
+    if _check_file_exists(ca_chain_path) and not force:
+       raise Exception("{} already exists, aborting".format(ca_chain_path))
+    # cert_path can be set to None, and all the files will the
+    # certificates will be saved to ca_chain_path
+    if cert_path:
+        with open(cert_path, "w") as f:
+            f.write(crts[0])
+            f.close()
+        with open(ca_chain_path, "w") as f:
+            f.write(crts[1:])
+            f.close()
+    else:
+        with open(cert_path, "w") as f:
+            f.write(crts[0:])
+            f.close()
+    setFilePermissions(path, user, group, mode=0o640)
+    setFilePermissions(path, user, group, mode=0o640)
 
 
 def _check_file_exists(path):
@@ -28,7 +62,7 @@ def _check_file_exists(path):
 
 
 def genRandomPassword():
-    return "".join(charsPassword[c % len(charsPassword)]
+    return "".join(CHARS_PASSWORD[c % len(CHARS_PASSWORD)]
                    for c in os.urandom(PASSWORD_LEN))
 
 
@@ -40,7 +74,14 @@ def RegisterIfTruststoreExists(path):
     return _check_file_exists(path)
 
 
-def SetTrustAndKeystoreFilePermissions(user, group, keystore_path,
+def setFilePermissions(path, user, group, mode=None):
+    shutil.chown(path, user=user, group=group)
+    if mode:
+        os.chmod(path, mode)
+
+
+def SetTrustAndKeystoreFilePermissions(user, group, 
+                                       keystore_path,
                                        truststore_path):
     shutil.chown(keystore_path, user=user, group=group)
     os.chmod(keystore_path, 0o640)
@@ -60,11 +101,10 @@ def SetCertAndKeyFilePermissions(user, group,
     os.chmod(key_path, 0o640)
 
 
-def PKCS12CreateKeystore(keystore_path, keystore_pwd, ssl_cert, ssl_key):
-
+def PKCS12CreateKeystore(keystore_path, keystore_pwd, ssl_chain, ssl_key):
     try:
         with open("/tmp/kafka-broker-charm-cert.chain", "w") as f:
-            f.write(ssl_cert)
+            f.write(ssl_chain)
             f.close()
         with open("/tmp/kafka-broker-charm.key", "w") as f:
             f.write(ssl_key)
@@ -81,34 +121,51 @@ def PKCS12CreateKeystore(keystore_path, keystore_pwd, ssl_cert, ssl_key):
                   "-destkeystore", keystore_path, "-deststoretype", "pkcs12",
                   "-deststorepass", keystore_pwd, "-destkeypass", keystore_pwd]
         subprocess.check_call(ks_cmd)
-    except Exception:
+    except Exception as e:
         # We've saved the key and cert to /tmp, we cannot leave it there
         # clean it up:
         os.remove("/tmp/kafka-broker-charm.key")
         os.remove("/tmp/kafka-broker-charm.p12")
         os.remove("/tmp/kafka-broker-charm-cert.chain")
+        raise e
+
+    # We've saved the key and cert to /tmp, we cannot leave it there
+    # clean it up:
+    os.remove("/tmp/kafka-broker-charm.key")
+    os.remove("/tmp/kafka-broker-charm.p12")
+    os.remove("/tmp/kafka-broker-charm-cert.chain")
 
 
-def CreateTruststoreWithCertificates(ssl_ca, truststore_path):
-    pass
-    # TODO(pguimarae):
-    # 1) Convert ssl_ca into a cert chain
-    # 2) Split it into several certs
-    # 3) For each cert on the chain, save to a file push to keytool:
-    #    CHECK: https://github.com/confluentinc/cp-ansible/blob/  \
-    #                     b711fc9e3b43d2069a9ac8b13177e7f2a07c7bfb/  \
-    #                     roles/confluent.ssl/tasks/import_ca_chain.yml#L14
-    #    keytool -noprompt -keystore {{truststore_path}}
-    #    -storetype pkcs12 -alias
-    #    {fileName} -trustcacerts -import -file "$file"
-    #    -deststorepass {{truststore_storepass}}
+def CreateTruststoreWithCertificates(truststore_path, truststore_pwd, ssl_ca):
+    crtpath = "/tmp/juju_ca_cert"
+    for c in ssl_ca:
+        with open(crtpath, "w") as f:
+            f.write(c)
+            f.close()
+        ts_cmd =["keytool", "-noprompt", "-keystore", truststore_path,
+                 "-storetype", "pkcs12", "-alias", "jujuCAChain",
+                 "-trustcacerts", "-import", "-file", crtpath, "-deststorepass",
+                 truststore_pwd]
+    os.remove(crtpath)
 
 
 def CreateKeystoreAndTrustore(keystore_path,
                               truststore_path,
-                              regenerate_stores):
+                              regenerate_stores,
+                              keystore_pwd,
+                              truststore_pwd,
+                              ssl_cert_chain,
+                              ssl_key,
+                              user="root",
+                              group="root",
+                              mode=None):
     if RegisterIfKeystoreExists(keystore_path) and \
        RegisterIfTruststoreExists(truststore_path) and \
        not regenerate_stores:
         # return None as this option is not needed
         return None
+    cert_chain = _break_crt_chain(ssl_cert_chain)
+    PKCS12CreateKeystore(keystore_path, keystore_pwd, cert_chain[0], ssl_key)
+    CreateTruststoreWithCertificates(truststore_path, truststore_pwd, cert_chain[1:])
+    setFilePermissions(keystore_path, user, group, mode)
+    setFilePermissions(truststore_path, user, group, mode)
