@@ -10,6 +10,7 @@
 #  License for the specific language governing permissions and limitations
 #  under the License.
 
+import os
 import unittest
 # from mock import patch
 # from mock import PropertyMock
@@ -24,6 +25,7 @@ from wand.security.ssl import _check_file_exists
 from wand.security.ssl import CreateKeystoreAndTrustore
 from wand.security.ssl import generateSelfSigned
 from wand.security.ssl import genRandomPassword
+from wand.security.ssl import PASSWORD_LEN
 
 
 class TestSecurity(unittest.TestCase):
@@ -40,9 +42,19 @@ class TestSecurity(unittest.TestCase):
         self.assertEqual(True, _check_file_exists("/tmp/testcert.key"))
 
     def test_create_ks_ts(self):
+        def __cleanup():
+            for i in ["/tmp/testcert.crt", "/tmp/testcert.key",
+                      "/tmp/testks.jks", "/tmp/testts.jks",
+                      "/tmp/ks-charm*"]:
+                try:
+                    os.remove(i)
+                except Exception:
+                    pass
+
+        __cleanup()
         ks_pwd = genRandomPassword()
         ts_pwd = genRandomPassword()
-        self.assertEqual(48, len(ks_pwd))
+        self.assertEqual(PASSWORD_LEN, len(ks_pwd))
         crt, key = generateSelfSigned("/tmp", "testcert")
         CreateKeystoreAndTrustore("/tmp/testks.jks",
                                   "/tmp/testts.jks",
@@ -52,3 +64,4 @@ class TestSecurity(unittest.TestCase):
                                   user=None)
         self.assertEqual(True, _check_file_exists("/tmp/testks.jks"))
         self.assertEqual(True, _check_file_exists("/tmp/testts.jks"))
+        __cleanup()

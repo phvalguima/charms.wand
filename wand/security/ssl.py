@@ -63,6 +63,9 @@ def _check_file_exists(path):
     return True
 
 
+# NOTE(pguimaraes):
+# DO NOT change length default value below without updating
+# PASSWORD_LEN constant at the top of ssl.py
 def genRandomPassword(length=48):
     return "".join(CHARS_PASSWORD[c % len(CHARS_PASSWORD)]
                    for c in os.urandom(length))
@@ -94,7 +97,7 @@ def generateSelfSigned(folderpath=None,
     cert = crypto.X509()
     serNum = 0
     valSecs = 10*365*24*60*60
-    x509name = cert.get_subject()
+    x509name = crypto.X509Name(crypto.X509().get_subject())
     x509name.countryName = "UK"
     x509name.stateOrProvinceName = "London"
     x509name.organizationName = "TestWandUbuntu"
@@ -105,6 +108,8 @@ def generateSelfSigned(folderpath=None,
     cert.gmtime_adj_notBefore(0)
     cert.gmtime_adj_notAfter(valSecs)
     cert.set_pubkey(key)
+    issuerName = crypto.X509Name(x509name)
+    cert.set_issuer(issuerName)
     cert.sign(key, 'sha512')
     cname = certname or genRandomPassword(6)
     folder = folderpath or "/tmp"
@@ -146,44 +151,53 @@ def SetCertAndKeyFilePermissions(user, group,
     os.chmod(key_path, 0o640)
 
 
-def PKCS12CreateKeystore(keystore_path, keystore_pwd, ssl_chain, ssl_key):
+def PKCS12CreateKeystore(keystore_path,
+                         keystore_pwd,
+                         ssl_chain,
+                         ssl_key,
+                         openssl_chain_path="/tmp/ks-charm-cert.chain",
+                         openssl_key_path="/tmp/ks-charm.key",
+                         openssl_p12_path="/tmp/ks-charm.p12"):
+
+    # We've saved the key and cert to /tmp, we cannot leave it there
+    # clean it up:
     def __cleanup():
-        os.remove("/tmp/kafka-broker-charm.key")
-        os.remove("/tmp/kafka-broker-charm.p12")
-        os.remove("/tmp/kafka-broker-charm-cert.chain")
+        for i in [openssl_chain_path, openssl_key_path, openssl_p12_path]:
+            try:
+                os.remove(i)
+            except Exception:
+                pass
 
     try:
-        with open("/tmp/kafka-broker-charm-cert.chain", "w") as f:
+        with open(openssl_chain_path, "w") as f:
             f.write(ssl_chain)
             f.close()
-        with open("/tmp/kafka-broker-charm.key", "w") as f:
+        with open(openssl_key_path, "w") as f:
             f.write(ssl_key)
             f.close()
         pk12_cmd = ['openssl', 'pkcs12', '-export', '-in',
-                    "/tmp/kafka-broker-charm-cert.chain",
-                    "-inkey", "/tmp/kafka-broker-charm.key",
-                    "-out", "/tmp/kafka-broker-charm.p12",
-                    "-name", "localhost", "-passout", "pass:mykeypassword"]
+                    openssl_chain_path,
+                    "-inkey", openssl_key_path,
+                    "-out", openssl_p12_path,
+                    "-name", "localhost", "-passout",
+                    "pass:{}".format(keystore_pwd)]
         subprocess.check_call(pk12_cmd)
         ks_cmd = ["keytool", "-importkeystore", "-srckeystore",
-                  "/tmp/kafka-broker-charm.p12", "-srcstoretype",
-                  "pkcs12", "-srcstorepass", "mykeypassword",
+                  openssl_p12_path, "-srcstoretype",
+                  "pkcs12", "-srcstorepass", keystore_pwd,
                   "-destkeystore", keystore_path, "-deststoretype", "pkcs12",
                   "-deststorepass", keystore_pwd, "-destkeypass", keystore_pwd]
         subprocess.check_call(ks_cmd)
     except Exception as e:
-        # We've saved the key and cert to /tmp, we cannot leave it there
-        # clean it up:
         __cleanup()
         raise e
-
-    # We've saved the key and cert to /tmp, we cannot leave it there
-    # clean it up:
+    # We clean up intermediate keys and certs for p12 anyway
     __cleanup()
+
 
 def CreateTruststoreWithCertificates(truststore_path, truststore_pwd, ssl_ca):
     crtpath = "/tmp/juju_ca_cert"
-    for c in ssl_ca:
+    for c in _break_crt_chain(ssl_ca):
         with open(crtpath, "w") as f:
             f.write(c)
             f.close()
