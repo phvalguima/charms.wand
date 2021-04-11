@@ -15,6 +15,12 @@ from ops.framework import StoredState
 
 from charmhelpers.contrib.network.ip import get_hostname
 
+__all__ = [
+    'ZookeeperRelation',
+    'ZookeeperProvidesRelation',
+    'ZookeeperRequiresRelation'
+]
+
 
 class ZookeeperRelation(Object):
     state = StoredState()

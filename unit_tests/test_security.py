@@ -22,7 +22,7 @@ from .test_cert import UBUNTU_COM_CERT
 
 from wand.security.ssl import _break_crt_chain
 from wand.security.ssl import _check_file_exists
-from wand.security.ssl import CreateKeystoreAndTrustore
+from wand.security.ssl import CreateKeystoreAndTruststore
 from wand.security.ssl import generateSelfSigned
 from wand.security.ssl import genRandomPassword
 from wand.security.ssl import PASSWORD_LEN
@@ -56,12 +56,12 @@ class TestSecurity(unittest.TestCase):
         ts_pwd = genRandomPassword()
         self.assertEqual(PASSWORD_LEN, len(ks_pwd))
         crt, key = generateSelfSigned("/tmp", "testcert")
-        CreateKeystoreAndTrustore("/tmp/testks.jks",
-                                  "/tmp/testts.jks",
-                                  True,
-                                  ks_pwd, ts_pwd,
-                                  crt, key,
-                                  user=None)
+        CreateKeystoreAndTruststore("/tmp/testks.jks",
+                                    "/tmp/testts.jks",
+                                    True,
+                                    ks_pwd, ts_pwd,
+                                    crt, key,
+                                    user=None)
         self.assertEqual(True, _check_file_exists("/tmp/testks.jks"))
         self.assertEqual(True, _check_file_exists("/tmp/testts.jks"))
         __cleanup()

@@ -26,7 +26,11 @@ SETUP = {
     'author': "phvalguima",
     'url': "https://github.com/phvalguima/charms.wand",
     'packages': [
-        "wand",
+        'wand',
+        'wand.apps',
+        'wand.apps.relations',
+        'wand.contrib',
+        'wand.security'
     ],
     'install_requires': [
         'ops',

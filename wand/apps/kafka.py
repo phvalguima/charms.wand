@@ -27,6 +27,10 @@ from charmhelpers.core.host import mount
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    'KafkaJavaCharmBase'
+]
+
 
 class KafkaJavaCharmBase(JavaCharmBase):
 

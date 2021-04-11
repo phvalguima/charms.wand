@@ -20,6 +20,23 @@ CHARS_PASSWORD = string.ascii_letters + string.digits
 PASSWORD_LEN = 48
 
 
+nano = [
+    '_break_crt_chain',
+    'saveCrtChainToFile',
+    '_check_file_exists',
+    'genRandomPassword',
+    'RegisterIfKeystoreExists',
+    'RegisterIfTruststoreExists',
+    'setFilePermissions',
+    'generateSelfSigned',
+    'SetTrustAndKeystoreFilePermissions',
+    'SetCertAndKeyFilePermissions',
+    'PKCS12CreateKeystore',
+    'CreateTruststoreWithCertificates',
+    'CreateKeystoreAndTruststore'
+]
+
+
 def _break_crt_chain(buffer):
     return [i+"-----END CERTIFICATE-----\n"
             for i in buffer.split("-----END CERTIFICATE-----\n")
@@ -209,16 +226,16 @@ def CreateTruststoreWithCertificates(truststore_path, truststore_pwd, ssl_ca):
     os.remove(crtpath)
 
 
-def CreateKeystoreAndTrustore(keystore_path,
-                              truststore_path,
-                              regenerate_stores,
-                              keystore_pwd,
-                              truststore_pwd,
-                              ssl_cert_chain,
-                              ssl_key,
-                              user="root",
-                              group="root",
-                              mode=None):
+def CreateKeystoreAndTruststore(keystore_path,
+                                truststore_path,
+                                regenerate_stores,
+                                keystore_pwd,
+                                truststore_pwd,
+                                ssl_cert_chain,
+                                ssl_key,
+                                user="root",
+                                group="root",
+                                mode=None):
     if RegisterIfKeystoreExists(keystore_path) and \
        RegisterIfTruststoreExists(truststore_path) and \
        not regenerate_stores:

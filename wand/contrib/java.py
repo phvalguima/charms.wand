@@ -23,6 +23,11 @@ from charmhelpers.fetch.ubuntu import apt_install
 logger = logging.getLogger(__name__)
 
 
+__all__ = [
+    'JavaCharmBase'
+]
+
+
 class JavaCharmBase(CharmBase):
 
     PACKAGE_LIST = {
