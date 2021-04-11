@@ -57,13 +57,14 @@ class KafkaJavaCharmBase(JavaCharmBase):
 
         apt_install(packages)
 
-    def is_ssl_enabled(self):
-        if len(self.config.get("ssl_ca", "")) > 0 and \
-           len(self.config.get("ssl_cert", "")) > 0 and \
+    def is_client_ssl_enabled(self):
+        # TODO(pguimaraes): add support for certificate endpoint
+        # if ssl_* config is set, this takes precedence otherwise
+        # vault relation should be used to provide certificates.
+        if len(self.config.get("ssl_cert", "")) > 0 and \
            len(self.config.get("ssl_key", "")) > 0:
             return True
-        if len(self.config.get("ssl_ca", "")) > 0 or \
-           len(self.config.get("ssl_cert", "")) > 0 or \
+        if len(self.config.get("ssl_cert", "")) > 0 or \
            len(self.config.get("ssl_key", "")) > 0:
             logger.warning("Only some of the ssl configurations have been set")
         return False
