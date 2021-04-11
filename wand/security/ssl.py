@@ -33,7 +33,8 @@ nano = [
     'SetCertAndKeyFilePermissions',
     'PKCS12CreateKeystore',
     'CreateTruststoreWithCertificates',
-    'CreateKeystoreAndTruststore'
+    'CreateKeystoreAndTruststore',
+    'CreateTruststore'
 ]
 
 
@@ -212,6 +213,35 @@ def PKCS12CreateKeystore(keystore_path,
     __cleanup()
 
 
+def CreateTruststore(ts_path,
+                     ts_pwd,
+                     ts_certs,
+                     ts_regenerate=False):
+    crtpath = "/tmp/juju_ca_cert"
+    if ts_regenerate:
+        try:
+            os.remove(ts_path)
+        except Exception:
+            pass
+    host_rand = genRandomPassword(6)
+    counter = 0
+    for c in ts_certs:
+        with open(crtpath, "w") as f:
+            f.write(c)
+            f.close()
+        # ZK doc: alias must change per cert added
+        ts_cmd = ["keytool", "-noprompt", "-keystore", truststore_path,
+                  "-storetype", "pkcs12", "-alias",
+                  "host.{}.{}".format(host_rand, counter),
+                  "-trustcacerts", "-import", "-file", crtpath,
+                  "-deststorepass", truststore_pwd]
+        subprocess.check_call(ts_cmd)
+    os.remove(crtpath)
+
+
+# TODO(pguimaraes): this method is not correct, we need one alias per cert and
+# not to break cert chain into units of PEM files. Remove it in favor of
+# CreateTruststore
 def CreateTruststoreWithCertificates(truststore_path, truststore_pwd, ssl_ca):
     crtpath = "/tmp/juju_ca_cert"
     for c in _break_crt_chain(ssl_ca):

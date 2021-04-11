@@ -15,6 +15,8 @@ from ops.framework import StoredState
 
 from charmhelpers.contrib.network.ip import get_hostname
 
+from wand.security.ssl import CreateTruststore
+
 __all__ = [
     'ZookeeperRelation',
     'ZookeeperProvidesRelation',
@@ -32,6 +34,10 @@ class ZookeeperRelation(Object):
         self._relation_name = relation_name
         self._relation = self.framework.model.get_relation(self._relation_name)
         self.state.set_default(zk_list="")
+        # Space separated list of trusted_certs for mTLS
+        self.state.set_default(mtls_trusted_certs="")
+        self.state.set_default(mtls_ts_path="")
+        self.state.set_default(mtls_ts_pwd="")
 
     @property
     def _relations(self):
@@ -46,6 +52,29 @@ class ZookeeperRelation(Object):
         return self.model.get_binding(self._relation_name) \
                .network.ingress_address
 
+    def _get_all_mtls_cert(self):
+        if not self._relation.data[self._unit].get("mtls_cert", None):
+            return
+        self.state.trusted_certs = self.state.mtls_cert + " " + " ".join(
+            [self._relation.data[u].get("mtls_cert", "") for u in self._relation.units])
+        CreateTruststore(self.state.mtls_ts_path,
+                         self.state.mtls_ts_pwd,
+                         self.state.mtls_trusted_certs.split(),
+                         ts_regenerate=True)
+
+    def set_mTLS_auth(self,
+                      cert_chain,
+                      truststore_path,
+                      truststore_pwd):
+        # 1) Publishes the cert on mtls_cert
+        self._relation.data[self._unit]["mtls_cert"] = cert_chain
+        self.state.mtls_ts_path = truststore_path
+        self.state.mtls_ts_pwd  = truststore_pwd
+        self.state.mtls_trusted_certs = cert_chain
+        self.state.mtls_cert = cert_chain
+        # 2) Grab any already-published mtls certs and generate the truststore
+        self._get_all_mtls_cert()
+
     def on_zookeeper_relation_joined(self, event):
         pass
 
@@ -58,6 +87,7 @@ class ZookeeperRelation(Object):
                 continue
             zk_list.append(self._relation.data[u]["endpoint"])
         self.state.zk_list = ",".join(zk_list)
+        self._get_all_mtls_cert()
 
 
 class ZookeeperProvidesRelation(ZookeeperRelation):
@@ -72,7 +102,7 @@ class ZookeeperProvidesRelation(ZookeeperRelation):
 
     def on_zookeeper_relation_joined(self, event):
         # Get unit's own hostname and pass that via relation
-        self._relations[self._unit]["endpoint"] = \
+        self._relation.data[self._unit]["endpoint"] = \
             "{}:{}".format(get_hostname(self.advertise_addr),
                            self._port)
 
@@ -80,6 +110,10 @@ class ZookeeperProvidesRelation(ZookeeperRelation):
         # First, update this unit entry for "endpoint"
         self.on_zookeper_relation_joined(event)
         # Second, recover data from peers
+        # Third, check if mtls_cert has been set. If so, check
+        # if any of the other peers have also published mtls for the
+        # truststore.
+        # This is done already on parent class method
         super().on_zookeeper_relation_changed(event)
 
 
