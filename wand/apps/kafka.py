@@ -10,17 +10,15 @@
 #  License for the specific language governing permissions and limitations
 #  under the License.
 
-import logging
 import os
 import shutil
 import yaml
 import subprocess
+import logging
 
-from ops.charm import CharmBase
-from ops.framework import StoredState
+from wand.contrib.java import JavaCharmBase
+
 from ops.model import BlockedStatus
-
-from wand.security.ssl import genRandomPassword
 
 from charmhelpers.fetch.ubuntu import apt_update
 from charmhelpers.fetch.ubuntu import add_source
@@ -28,28 +26,6 @@ from charmhelpers.fetch.ubuntu import apt_install
 from charmhelpers.core.host import mount
 
 logger = logging.getLogger(__name__)
-
-
-class JavaCharmBase(CharmBase):
-
-    PACKAGE_LIST = {
-        'openjdk-11-headless': ['openjdk-11-jre-headless']
-    }
-
-    # Extra packages that follow Java, e.g. openssl for cert generation
-    EXTRA_PACKAGES = [
-       'openssl'
-    ]
-    ks = StoredState()
-
-    def __init__(self, *args):
-        super().__init__(*args)
-        self.ks.set_default(ks_password=genRandomPassword())
-        self.ks.set_default(ts_password=genRandomPassword())
-
-    def install_packages(self, java_version='openjdk-11-headless'):
-        apt_update()
-        apt_install(self.PACKAGE_LIST[java_version] + self.EXTRA_PACKAGES)
 
 
 class KafkaJavaCharmBase(JavaCharmBase):
