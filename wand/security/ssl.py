@@ -223,6 +223,7 @@ def CreateTruststore(ts_path,
             os.remove(ts_path)
         except Exception:
             pass
+    # small random string to act as prefix for the certs' alias
     host_rand = genRandomPassword(6)
     counter = 0
     for c in ts_certs:
@@ -230,11 +231,11 @@ def CreateTruststore(ts_path,
             f.write(c)
             f.close()
         # ZK doc: alias must change per cert added
-        ts_cmd = ["keytool", "-noprompt", "-keystore", truststore_path,
+        ts_cmd = ["keytool", "-noprompt", "-keystore", ts_path,
                   "-storetype", "pkcs12", "-alias",
                   "host.{}.{}".format(host_rand, counter),
                   "-trustcacerts", "-import", "-file", crtpath,
-                  "-deststorepass", truststore_pwd]
+                  "-deststorepass", ts_pwd]
         subprocess.check_call(ts_cmd)
     os.remove(crtpath)
 

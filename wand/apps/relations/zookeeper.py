@@ -18,10 +18,18 @@ from charmhelpers.contrib.network.ip import get_hostname
 from wand.security.ssl import CreateTruststore
 
 __all__ = [
+    'ZookeeperRelationMTLSNotSetError',
     'ZookeeperRelation',
     'ZookeeperProvidesRelation',
     'ZookeeperRequiresRelation'
 ]
+
+class ZookeeperRelationMTLSNotSetError(Exception):
+
+    def __init__(self, message="mTLS is configured on zookeeper"
+                               " relation but not present on"
+                               " configured on this unit."):
+        super().__init__(self.message)
 
 
 class ZookeeperRelation(Object):
@@ -53,7 +61,7 @@ class ZookeeperRelation(Object):
                .network.ingress_address
 
     def _get_all_mtls_cert(self):
-        if not self._relation.data[self._unit].get("mtls_cert", None):
+        if not self.is_mTLS_enabled():
             return
         self.state.trusted_certs = self.state.mtls_cert + " " + " ".join(
             [self._relation.data[u].get("mtls_cert", "") for u in self._relation.units])
@@ -61,6 +69,16 @@ class ZookeeperRelation(Object):
                          self.state.mtls_ts_pwd,
                          self.state.mtls_trusted_certs.split(),
                          ts_regenerate=True)
+
+    def is_mTLS_enabled(self):
+        for u in self._relation.units:
+            if self._relation.data[u].get("mtls_cert", None):
+                # It is enabled, now we check if we have it set this unit as well
+                if not self._relation.data[self.unit].get("mtls_cert", None):
+                    # we do not, so raise an error to inform it
+                    raise ZookeeperRelationMTLSNotSetError()
+                return True
+        return False
 
     def set_mTLS_auth(self,
                       cert_chain,
