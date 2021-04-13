@@ -140,8 +140,10 @@ def generateSelfSigned(folderpath=None,
             crypto.FILETYPE_PEM, key).decode("utf-8"))
         f.close()
     if user and group:
-        setFilePermissions(folder + cname + ".crt", user, group, mode)
-        setFilePermissions(folder + cname + ".key", user, group, mode)
+        setFilePermissions(os.path.join(folder, cname + ".crt"),
+                           user, group, mode)
+        setFilePermissions(os.path.join(folder, cname + ".key"),
+                           user, group, mode)
     return (crypto.dump_certificate(
                crypto.FILETYPE_PEM, cert).decode("utf-8"),
             crypto.dump_privatekey(
@@ -245,4 +247,5 @@ def CreateTruststore(ts_path,
                   "-deststorepass", ts_pwd]
         subprocess.check_call(ts_cmd)
         setFilePermissions(ts_path, user, group, mode)
+        counter += 1
     os.remove(crtpath)

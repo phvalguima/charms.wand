@@ -68,7 +68,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
 
     @property
     def distro(self):
-        return self.options.get("distro", "confluent").lower()
+        return self.config.get("distro", "confluent").lower()
 
     def __init__(self, *args):
         super().__init__(*args)
@@ -185,7 +185,6 @@ class KafkaJavaCharmBase(JavaCharmBase):
     def create_log_dir(self, data_log_dev,
                        data_log_dir,
                        data_log_fs,
-                       data_fs,
                        user="cp-kafka",
                        group="confluent",
                        fs_options=None):
@@ -194,7 +193,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
             logger.warning("Data log dir config empty")
             BlockedStatus("data-log-dir missing, please define it")
             return
-        os.mkdir(data_log_dir, 0o750)
+        os.makedirs(data_log_dir, 0o750, exist_ok=True)
         shutil.chown(data_log_dir,
                      user=self.config["user"],
                      group=self.config["group"])
@@ -230,11 +229,11 @@ class KafkaJavaCharmBase(JavaCharmBase):
             logger.warning("Data dir config empty")
             BlockedStatus("data-dir missing, please define it")
             return
-        os.mkdir(data_log_dir, 0o750)
+        os.makedirs(data_log_dir, , 0o750, exist_ok=True)
         shutil.chown(data_log_dir,
                      user=self.config["user"],
                      group=self.config["group"])
-        os.mkdir(data_dir, 0o750)
+        os.makedirs(data_dir, , 0o750, exist_ok=True)
         shutil.chown(data_dir,
                      user=self.config["user"],
                      group=self.config["group"])
