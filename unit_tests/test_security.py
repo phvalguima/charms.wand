@@ -18,14 +18,11 @@ import unittest
 # from OpenSSL import crypto, SSL
 # import jks
 
+from mock import patch
+
 from .test_cert import UBUNTU_COM_CERT
 
-from wand.security.ssl import _break_crt_chain
-from wand.security.ssl import _check_file_exists
-from wand.security.ssl import CreateKeystoreAndTruststore
-from wand.security.ssl import generateSelfSigned
-from wand.security.ssl import genRandomPassword
-from wand.security.ssl import PASSWORD_LEN
+import wand.security.ssl as security
 
 
 class TestSecurity(unittest.TestCase):
@@ -34,14 +31,18 @@ class TestSecurity(unittest.TestCase):
         super(TestSecurity, self).setUp()
 
     def test_break_crt_chain(self):
-        self.assertEqual(2, len(_break_crt_chain(UBUNTU_COM_CERT)))
+        self.assertEqual(2, len(security._break_crt_chain(UBUNTU_COM_CERT)))
 
     def test_gen_self_signed(self):
-        generateSelfSigned("/tmp", "testcert")
-        self.assertEqual(True, _check_file_exists("/tmp/testcert.crt"))
-        self.assertEqual(True, _check_file_exists("/tmp/testcert.key"))
+        security.generateSelfSigned("/tmp", "testcert")
+        self.assertEqual(True,
+                         security._check_file_exists("/tmp/testcert.crt"))
+        self.assertEqual(True,
+                         security._check_file_exists("/tmp/testcert.key"))
 
-    def test_create_ks_ts(self):
+    @patch.object(security, "setFilePermissions")
+    def test_create_ks_ts(self,
+                          mock_file_perms):
         def __cleanup():
             for i in ["/tmp/testcert.crt", "/tmp/testcert.key",
                       "/tmp/testks.jks", "/tmp/testts.jks",
@@ -50,18 +51,18 @@ class TestSecurity(unittest.TestCase):
                     os.remove(i)
                 except Exception:
                     pass
-
         __cleanup()
-        ks_pwd = genRandomPassword()
-        ts_pwd = genRandomPassword()
-        self.assertEqual(PASSWORD_LEN, len(ks_pwd))
-        crt, key = generateSelfSigned("/tmp", "testcert")
-        CreateKeystoreAndTruststore("/tmp/testks.jks",
-                                    "/tmp/testts.jks",
-                                    True,
-                                    ks_pwd, ts_pwd,
-                                    crt, key,
-                                    user=None)
-        self.assertEqual(True, _check_file_exists("/tmp/testks.jks"))
-        self.assertEqual(True, _check_file_exists("/tmp/testts.jks"))
+        ks_pwd = security.genRandomPassword()
+        ts_pwd = security.genRandomPassword()
+        self.assertEqual(security.PASSWORD_LEN, len(ks_pwd))
+        crt, key = security.generateSelfSigned("/tmp", "testcert")
+        # Mocking setFilePermissions to avoid making this test too dependent
+        # on the user running it
+        security.PKCS12CreateKeystore("/tmp/testks.jks",
+                                      ks_pwd,
+                                      crt, key)
+        security.CreateTruststore("/tmp/testts.jks",
+                                  ts_pwd, [crt], True)
+        self.assertEqual(True, security._check_file_exists("/tmp/testks.jks"))
+        self.assertEqual(True, security._check_file_exists("/tmp/testts.jks"))
         __cleanup()

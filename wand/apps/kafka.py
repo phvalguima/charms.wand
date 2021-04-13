@@ -10,21 +10,25 @@
 #  License for the specific language governing permissions and limitations
 #  under the License.
 
+import base64
 import os
 import shutil
-import yaml
 import subprocess
 import logging
 
 from wand.contrib.java import JavaCharmBase
+from wand.security.ssl import _check_file_exists
+from wand.security.ssl import genRandomPassword
+from wand.security.ssl import PKCS12CreateKeystore
+from wand.security.ssl import CreateTruststore
 
 from ops.model import BlockedStatus
-from ops.framework import StoredState
 
 from charmhelpers.fetch.ubuntu import apt_update
 from charmhelpers.fetch.ubuntu import add_source
 from charmhelpers.fetch.ubuntu import apt_install
 from charmhelpers.core.host import mount
+from charmhelpers.core.templating import render
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +59,7 @@ ExecStart=
 {% if value %}
 Environment="{{key}}={{value}}"
 {% endif %}
-{% endfor %}"""
-
+{% endfor %}""" # noqa
 
 
 class KafkaJavaCharmBase(JavaCharmBase):
@@ -209,7 +212,6 @@ class KafkaJavaCharmBase(JavaCharmBase):
                   options=self.config.get("fs-options", None),
                   persist=True, filesystem=fs)
 
-
     def create_data_and_log_dirs(self, data_log_dev,
                                  data_dev,
                                  data_log_dir,
@@ -312,5 +314,5 @@ class KafkaJavaCharmBase(JavaCharmBase):
                context={
                    "service_unit_overrides": service_unit_overrides,
                    "service_overrides": service_overrides,
-                   "service_environment_overrides": service_environment_overrides
+                   "service_environment_overrides": service_environment_overrides # noqa
                })

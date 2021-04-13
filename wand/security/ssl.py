@@ -43,6 +43,7 @@ def _break_crt_chain(buffer):
             for i in buffer.split("-----END CERTIFICATE-----\n")
             if i.startswith("-----BEGIN CERTIFICATE-----\n")]
 
+
 def saveCrtChainToFile(buffer,
                        cert_path,
                        ca_chain_path,
@@ -245,57 +246,3 @@ def CreateTruststore(ts_path,
         subprocess.check_call(ts_cmd)
         setFilePermissions(ts_path, user, group, mode)
     os.remove(crtpath)
-
-
-# TODO(pguimaraes): this method is not correct, we need one alias per cert and
-# not to break cert chain into units of PEM files. Remove it in favor of
-# CreateTruststore
-def CreateTruststoreWithCertificates(truststore_path, truststore_pwd, ssl_ca):
-    crtpath = "/tmp/juju_ca_cert"
-    for c in _break_crt_chain(ssl_ca):
-        with open(crtpath, "w") as f:
-            f.write(c)
-            f.close()
-        ts_cmd = ["keytool", "-noprompt", "-keystore", truststore_path,
-                  "-storetype", "pkcs12", "-alias", "jujuCAChain",
-                  "-trustcacerts", "-import", "-file", crtpath,
-                  "-deststorepass", truststore_pwd]
-        subprocess.check_call(ts_cmd)
-    os.remove(crtpath)
-
-
-def CreateKeystoreAndTruststore(keystore_path,
-                                truststore_path,
-                                regenerate_stores,
-                                keystore_pwd,
-                                truststore_pwd,
-                                ssl_cert_chain,
-                                ssl_key,
-                                user="root",
-                                group="root",
-                                mode=None):
-    if RegisterIfKeystoreExists(keystore_path) and \
-       RegisterIfTruststoreExists(truststore_path) and \
-       not regenerate_stores:
-        # return None as this option is not needed
-        return None
-    cert_chain = _break_crt_chain(ssl_cert_chain)
-    if len(cert_chain) > 1:
-        PKCS12CreateKeystore(keystore_path,
-                             keystore_pwd,
-                             cert_chain[0],
-                             ssl_key)
-        CreateTruststoreWithCertificates(truststore_path,
-                                         truststore_pwd,
-                                         cert_chain[1:])
-    else:  # Self signed cert
-        PKCS12CreateKeystore(keystore_path,
-                             keystore_pwd,
-                             cert_chain[0],
-                             ssl_key)
-        CreateTruststoreWithCertificates(truststore_path,
-                                         truststore_pwd,
-                                         cert_chain[0])
-    if user and group:
-        setFilePermissions(keystore_path, user, group, mode)
-        setFilePermissions(truststore_path, user, group, mode)

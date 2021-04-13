@@ -24,6 +24,7 @@ __all__ = [
     'ZookeeperRequiresRelation'
 ]
 
+
 class ZookeeperRelationMTLSNotSetError(Exception):
 
     def __init__(self, message="mTLS is configured on zookeeper"
@@ -64,7 +65,8 @@ class ZookeeperRelation(Object):
         if not self.is_mTLS_enabled():
             return
         self.state.trusted_certs = self.state.mtls_cert + " " + " ".join(
-            [self._relation.data[u].get("mtls_cert", "") for u in self._relation.units])
+            [self._relation.data[u].get("mtls_cert", "")
+             for u in self._relation.units])
         CreateTruststore(self.state.mtls_ts_path,
                          self.state.mtls_ts_pwd,
                          self.state.mtls_trusted_certs.split(),
@@ -81,7 +83,8 @@ class ZookeeperRelation(Object):
     def is_mTLS_enabled(self):
         for u in self._relation.units:
             if self._relation.data[u].get("mtls_cert", None):
-                # It is enabled, now we check if we have it set this unit as well
+                # It is enabled, now we check
+                # if we have it set this unit as well
                 if not self._relation.data[self.unit].get("mtls_cert", None):
                     # we do not, so raise an error to inform it
                     raise ZookeeperRelationMTLSNotSetError()
@@ -95,7 +98,7 @@ class ZookeeperRelation(Object):
         # 1) Publishes the cert on mtls_cert
         self._relation.data[self._unit]["mtls_cert"] = cert_chain
         self.state.mtls_ts_path = truststore_path
-        self.state.mtls_ts_pwd  = truststore_pwd
+        self.state.mtls_ts_pwd = truststore_pwd
         self.state.mtls_trusted_certs = cert_chain
         self.state.mtls_cert = cert_chain
         # 2) Grab any already-published mtls certs and generate the truststore
@@ -129,10 +132,10 @@ class ZookeeperProvidesRelation(ZookeeperRelation):
 
     def on_zookeeper_relation_joined(self, event):
         # Get unit's own hostname and pass that via relation
+        hostname = self._hostname if self._hostname \
+            else get_hostname(self.advertise_addr)
         self._relation.data[self._unit]["endpoint"] = \
-            "{}:{}".format(self._hostname or \
-                           get_hostname(self.advertise_addr),
-                           self._port)
+            "{}:{}".format(hostname, self._port)
 
     def on_zookeeper_relation_changed(self, event):
         # First, update this unit entry for "endpoint"
