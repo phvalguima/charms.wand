@@ -70,6 +70,14 @@ class ZookeeperRelation(Object):
                          self.state.mtls_trusted_certs.split(),
                          ts_regenerate=True)
 
+    # TODO(pguimaraes): complete this method. So far returns False as it is
+    # not an option atm
+    def is_sasl_enabled(self):
+        return False
+
+    def client_auth_enabled(self):
+        return self.is_mTLS_enabled() or self.is_sasl_enabled()
+
     def is_mTLS_enabled(self):
         for u in self._relation.units:
             if self._relation.data[u].get("mtls_cert", None):
@@ -110,18 +118,20 @@ class ZookeeperRelation(Object):
 
 class ZookeeperProvidesRelation(ZookeeperRelation):
 
-    def __init__(self, charm, relation_name, port):
+    def __init__(self, charm, relation_name, hostname=None, port=2182):
         super().__init__(charm, relation_name)
         self.framework.observe(charm.on.zookeeper_relation_changed,
                                self.on_zookeeper_relation_changed)
         self.framework.observe(charm.on.zookeeper_relation_joined,
                                self.on_zookeeper_relation_joined)
+        self._hostname = hostname
         self._port = port
 
     def on_zookeeper_relation_joined(self, event):
         # Get unit's own hostname and pass that via relation
         self._relation.data[self._unit]["endpoint"] = \
-            "{}:{}".format(get_hostname(self.advertise_addr),
+            "{}:{}".format(self._hostname or \
+                           get_hostname(self.advertise_addr),
                            self._port)
 
     def on_zookeeper_relation_changed(self, event):

@@ -43,7 +43,6 @@ def _break_crt_chain(buffer):
             for i in buffer.split("-----END CERTIFICATE-----\n")
             if i.startswith("-----BEGIN CERTIFICATE-----\n")]
 
-
 def saveCrtChainToFile(buffer,
                        cert_path,
                        ca_chain_path,
@@ -173,6 +172,9 @@ def PKCS12CreateKeystore(keystore_path,
                          keystore_pwd,
                          ssl_chain,
                          ssl_key,
+                         user=None,
+                         group=None,
+                         mode=None,
                          openssl_chain_path="/tmp/ks-charm-cert.chain",
                          openssl_key_path="/tmp/ks-charm.key",
                          openssl_p12_path="/tmp/ks-charm.p12"):
@@ -206,6 +208,7 @@ def PKCS12CreateKeystore(keystore_path,
                   "-destkeystore", keystore_path, "-deststoretype", "pkcs12",
                   "-deststorepass", keystore_pwd, "-destkeypass", keystore_pwd]
         subprocess.check_call(ks_cmd)
+        setFilePermissions(keystore_path, user, group, mode)
     except Exception as e:
         __cleanup()
         raise e
@@ -216,7 +219,10 @@ def PKCS12CreateKeystore(keystore_path,
 def CreateTruststore(ts_path,
                      ts_pwd,
                      ts_certs,
-                     ts_regenerate=False):
+                     ts_regenerate=False,
+                     user=None,
+                     group=None,
+                     mode=None):
     crtpath = "/tmp/juju_ca_cert"
     if ts_regenerate:
         try:
@@ -237,6 +243,7 @@ def CreateTruststore(ts_path,
                   "-trustcacerts", "-import", "-file", crtpath,
                   "-deststorepass", ts_pwd]
         subprocess.check_call(ts_cmd)
+        setFilePermissions(ts_path, user, group, mode)
     os.remove(crtpath)
 
 
