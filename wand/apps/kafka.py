@@ -10,17 +10,13 @@
 #  License for the specific language governing permissions and limitations
 #  under the License.
 
-import base64
 import os
 import shutil
 import subprocess
 import logging
+import yaml
 
 from wand.contrib.java import JavaCharmBase
-from wand.security.ssl import _check_file_exists
-from wand.security.ssl import genRandomPassword
-from wand.security.ssl import PKCS12CreateKeystore
-from wand.security.ssl import CreateTruststore
 
 from ops.model import BlockedStatus
 
@@ -73,48 +69,6 @@ class KafkaJavaCharmBase(JavaCharmBase):
     def __init__(self, *args):
         super().__init__(*args)
 
-    def generate_ks_ts(self, keystore):
-        # Each element should have the format:
-        # [{ "example": {
-        #    "user": <user>,
-        #    "group": <group>,
-        #    "mode": 0o<value>,
-        #    "keystore": <KS object>,
-        #    "truststore": <TS object>,
-        #    "keystore-path": <keystore-path>,
-        #    "truststore-path": <ts-path>,
-        #    "keystore-cert": <base64:cert>,
-        #    "keystore-key": <base64:key>,
-        #    "truststore-certs": <base64:cert>,
-        #    "keystore-pwd": <pwd>,
-        #    "truststore-pwd": <pwd>"
-        # }}, ...]
-        for el in self.keystore.items():
-            ksfolder = os.path.dirname(el[1]["keystore-path"])
-            tsfolder = os.path.dirname(el[1]["truststore-path"])
-            if _check_file_exists(ksfolder):
-                raise Exception("Folder not found: {}".format(ksfolder))
-            if _check_file_exists(tsfolder):
-                raise Exception("Folder not found: {}".format(tsfolder))
-            el[1]["keystore-pwd"] = genRandomPassword()
-            el[1]["truststore-pwd"] = genRandomPassword()
-            el[1]["keystore"] = PKCS12CreateKeystore(
-                el[1]["keystore-path"],
-                el[1]["keystore-pwd"],
-                base64.b64decode(el[1]["keystore-cert"]).decode("ascii"),
-                base64.b64decode(el[1]["keystore-key"]).decode("ascii"),
-                user=el[1]["user"],
-                group=el[1]["group"],
-                mode=el[1]["mode"])
-            el[1]["truststore"] = CreateTruststore(
-                el[1]["truststore-path"],
-                el[1]["truststore-pwd"],
-                el[1]["truststore-certs"],
-                ts_regenerate=True,
-                user=el[1]["user"],
-                group=el[1]["group"],
-                mode=el[1]["mode"])
-
     def install_packages(self, java_version, packages):
         version = self.config.get("version", self.LATEST_VERSION_CONFLUENT)
         if self.distro == "confluent":
@@ -143,6 +97,9 @@ class KafkaJavaCharmBase(JavaCharmBase):
         if len(self.config.get("ssl_cert", "")) > 0 or \
            len(self.config.get("ssl_key", "")) > 0:
             logger.warning("Only some of the ssl configurations have been set")
+        return False
+
+    def is_ssl_enabled(self):
         return False
 
     def is_sasl_enabled(self):
@@ -229,11 +186,11 @@ class KafkaJavaCharmBase(JavaCharmBase):
             logger.warning("Data dir config empty")
             BlockedStatus("data-dir missing, please define it")
             return
-        os.makedirs(data_log_dir, , 0o750, exist_ok=True)
+        os.makedirs(data_log_dir, 0o750, exist_ok=True)
         shutil.chown(data_log_dir,
                      user=self.config["user"],
                      group=self.config["group"])
-        os.makedirs(data_dir, , 0o750, exist_ok=True)
+        os.makedirs(data_dir, 0o750, exist_ok=True)
         shutil.chown(data_dir,
                      user=self.config["user"],
                      group=self.config["group"])
@@ -267,51 +224,65 @@ class KafkaJavaCharmBase(JavaCharmBase):
     def render_service_override_file(self,
                                      target,
                                      jmx_file_name="kafka"):
-        service_unit_overrides = \
-            self.config.get('service-unit-overrides', "")
-        service_overrides = \
-            self.config.get('service-overrides', "")
-        service_environment_overrides = \
-            self.config.get('service-environment-overrides', "")
+        service_unit_overrides = yaml.safe_load(
+            self.config.get('service-unit-overrides', ""))
+        service_overrides = yaml.safe_load(
+            self.config.get('service-overrides', ""))
+        service_environment_overrides = yaml.safe_load(
+            self.config.get('service-environment-overrides', ""))
+
+        if "KAFKA_OPTS" not in service_environment_overrides:
+            # Assume it will be needed, so adding it
+            service_environment_overrides["KAFKA_OPTS"] = ""
+
         if self.is_ssl_enabled():
+            if len(service_environment_overrides["KAFKA_OPTS"]) > 0:
+                service_environment_overrides["KAFKA_OPTS"] += " "
             service_environment_overrides["KAFKA_OPTS"] = \
                 service_environment_overrides["KAFKA_OPTS"] + \
                 "-Djdk.tls.ephemeralDHKeySize=2048"
-        if self.is_kerberos_enabled() or self.is_digest_enabled():
+        if self.is_sasl_kerberos_enabled() or self.is_sasl_digest_enabled():
+            if len(service_environment_overrides["KAFKA_OPTS"]) > 0:
+                service_environment_overrides["KAFKA_OPTS"] += " "
             service_environment_overrides["KAFKA_OPTS"] = \
                 service_environment_overrides["KAFKA_OPTS"] + \
                 "-Djava.security.auth.login.config=" + \
                 "/etc/kafka/jaas.conf"
         if self.is_jolokia_enabled():
+            if len(service_environment_overrides["KAFKA_OPTS"]) > 0:
+                service_environment_overrides["KAFKA_OPTS"] += " "
             service_environment_overrides["KAFKA_OPTS"] = \
                 service_environment_overrides["KAFKA_OPTS"] + \
                 "-javaagent:/opt/jolokia/jolokia.jar=" + \
                 "config=/etc/kafka/jolokia.properties"
         if self.is_jmxexporter_enabled():
+            if len(service_environment_overrides["KAFKA_OPTS"]) > 0:
+                service_environment_overrides["KAFKA_OPTS"] += " "
             service_environment_overrides["KAFKA_OPTS"] = \
                 service_environment_overrides["KAFKA_OPTS"] + \
                 "-javaagent:/opt/prometheus/jmx_prometheus_javaagent.jar=" + \
                 "{}:/opt/prometheus/{}.yml" \
                 .format(self.config.get("jmx-exporter-port", 8079),
                         jmx_file_name)
+        if len(service_environment_overrides.get("KAFKA_OPTS", "")) == 0:
+            # Assumed KAFKA_OPTS would be set at some point
+            # however, it was not, so removing it
+            service_environment_overrides.pop("KAFKA_OPTS", None)
 
-        service_overrides["User"] = \
-            "".formatself.config.get('user')
-        service_overrides["Group"] = \
-            self.config.get('group')
-        # TODO(pguimaraes): implement logic for install_method==archive:
-        # it should redirect to a different folder other than /etc
-        # if self.config.get("install_method", "").lower() == "archive":
-        with open("/tmp/override.conf.j2", "w") as f:
-            f.write(OVERRIDE_CONF)
-            f.close()
-        render(source="/tmp/override.conf.js",
+        if service_overrides:
+            if self.config.get('user', "") in service_overrides and \
+               self.config.get('group', "") in service_overrides:
+                service_overrides["User"] = \
+                    self.config.get('user')
+                service_overrides["Group"] = \
+                    self.config.get('group')
+        render(source="kafka_override.conf.j2",
                target=target,
                owner=self.config.get('user'),
                group=self.config.get("group"),
                perms=0o644,
                context={
-                   "service_unit_overrides": service_unit_overrides,
-                   "service_overrides": service_overrides,
-                   "service_environment_overrides": service_environment_overrides # noqa
+                   "service_unit_overrides": service_unit_overrides or {},
+                   "service_overrides": service_overrides or {},
+                   "service_environment_overrides": service_environment_overrides or {} # noqa
                })
