@@ -36,7 +36,8 @@ class ZookeeperRelationMTLSNotSetError(Exception):
 class ZookeeperRelation(Object):
     state = StoredState()
 
-    def __init__(self, charm, relation_name):
+    def __init__(self, charm, relation_name,
+                 user="", group="", mode=0):
         super().__init__(charm, relation_name)
         self._charm = charm
         self._unit = charm.unit
@@ -47,6 +48,21 @@ class ZookeeperRelation(Object):
         self.state.set_default(mtls_trusted_certs="")
         self.state.set_default(mtls_ts_path="")
         self.state.set_default(mtls_ts_pwd="")
+        self.state.set_default(user=user)
+        self.state.set_default(group=group)
+        self.state.set_default(mode=mode)
+
+    @property
+    def user(self):
+        return self.state.user
+
+    @property
+    def group(self):
+        return self.state.group
+
+    @property
+    def mode(self):
+        return self.state.mode
 
     @property
     def _relations(self):
@@ -70,7 +86,10 @@ class ZookeeperRelation(Object):
         CreateTruststore(self.state.mtls_ts_path,
                          self.state.mtls_ts_pwd,
                          self.state.mtls_trusted_certs.split(),
-                         ts_regenerate=True)
+                         ts_regenerate=True,
+                         user=self.state.user,
+                         group=self.state.group,
+                         mode=self.state.mode)
 
     # TODO(pguimaraes): complete this method. So far returns False as it is
     # not an option atm
@@ -121,8 +140,10 @@ class ZookeeperRelation(Object):
 
 class ZookeeperProvidesRelation(ZookeeperRelation):
 
-    def __init__(self, charm, relation_name, hostname=None, port=2182):
-        super().__init__(charm, relation_name)
+    def __init__(self, charm, relation_name, hostname=None, port=2182,
+                 user="", group="", mode=0):
+        super().__init__(charm, relation_name,
+                         user=user, group=group, mode=mode)
         self.framework.observe(charm.on.zookeeper_relation_changed,
                                self.on_zookeeper_relation_changed)
         self.framework.observe(charm.on.zookeeper_relation_joined,
@@ -151,6 +172,8 @@ class ZookeeperProvidesRelation(ZookeeperRelation):
 # TODO(pguimaraes): Generate the: zookeeper-tls-client.properties.j2
 class ZookeeperRequiresRelation(ZookeeperRelation):
 
-    def __init__(self, charm, relation_name):
-        super().__init__(charm, relation_name)
+    def __init__(self, charm, relation_name,
+                 user="", group="", mode=0):
+        super().__init__(charm, relation_name,
+                         user=user, group=group, mode=mode)
         self.framework.observe(charm.on.zookeeper_relation_changed, self)

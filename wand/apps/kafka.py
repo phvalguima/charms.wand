@@ -63,6 +63,11 @@ class KafkaJavaCharmBase(JavaCharmBase):
     LATEST_VERSION_CONFLUENT = "6.1"
 
     @property
+    def unit_folder(self):
+        # Using as a method so we can also mock it on unit tests
+        return os.getenv("JUJU_CHARM_DIR")
+
+    @property
     def distro(self):
         return self.config.get("distro", "confluent").lower()
 
@@ -106,7 +111,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
         # This method must be implemented per final charm.
         # E.g. zookeeper supports digest and kerberos
         # while broker does not support digest but does support LDAP
-        pass
+        return False
 
     def is_sasl_oauthbearer_enabled(self):
         return False

@@ -45,6 +45,10 @@ class JavaCharmBase(CharmBase):
         self.ks.set_default(ks_password=genRandomPassword())
         self.ks.set_default(ts_password=genRandomPassword())
 
-    def install_packages(self, java_version='openjdk-11-headless'):
+    def install_packages(self,
+                         java_version='openjdk-11-headless',
+                         packages=[]):
         apt_update()
-        apt_install(self.PACKAGE_LIST[java_version] + self.EXTRA_PACKAGES)
+        apt_install(self.PACKAGE_LIST[java_version] +
+                    self.EXTRA_PACKAGES +
+                    packages)
