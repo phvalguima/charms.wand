@@ -56,13 +56,33 @@ class ZookeeperRelation(Object):
     def user(self):
         return self.state.user
 
+    @user.setter
+    def user(self, x):
+        self.state.user = x
+
     @property
     def group(self):
         return self.state.group
 
+    @group.setter
+    def group(self, x):
+        self.state.group = x
+
     @property
     def mode(self):
         return self.state.mode
+
+    @mode.setter
+    def mode(self, x):
+        self.state.mode = x
+
+    @property
+    def unit(self):
+        return self._unit
+
+    @property
+    def relation(self):
+        return self._relation
 
     @property
     def _relations(self):
@@ -80,12 +100,12 @@ class ZookeeperRelation(Object):
     def _get_all_mtls_cert(self):
         if not self.is_mTLS_enabled():
             return
-        self.state.trusted_certs = self.state.mtls_cert + " " + " ".join(
-            [self._relation.data[u].get("mtls_cert", "")
-             for u in self._relation.units])
+        self.state.trusted_certs = \
+            "::".join(list(self.relation.data[u].get("mtls_cert", "")
+                           for u in self.relation.units))
         CreateTruststore(self.state.mtls_ts_path,
                          self.state.mtls_ts_pwd,
-                         self.state.mtls_trusted_certs.split(),
+                         self.state.mtls_trusted_certs.split("::"),
                          ts_regenerate=True,
                          user=self.state.user,
                          group=self.state.group,
@@ -100,11 +120,11 @@ class ZookeeperRelation(Object):
         return self.is_mTLS_enabled() or self.is_sasl_enabled()
 
     def is_mTLS_enabled(self):
-        for u in self._relation.units:
-            if self._relation.data[u].get("mtls_cert", None):
+        for u in self.relation.units:
+            if self.relation.data[u].get("mtls_cert", None):
                 # It is enabled, now we check
                 # if we have it set this unit as well
-                if not self._relation.data[self.unit].get("mtls_cert", None):
+                if not self.relation.data[self.unit].get("mtls_cert", None):
                     # we do not, so raise an error to inform it
                     raise ZookeeperRelationMTLSNotSetError()
                 return True
@@ -115,7 +135,7 @@ class ZookeeperRelation(Object):
                       truststore_path,
                       truststore_pwd):
         # 1) Publishes the cert on mtls_cert
-        self._relation.data[self._unit]["mtls_cert"] = cert_chain
+        self.relation.data[self.unit]["mtls_cert"] = cert_chain
         self.state.mtls_ts_path = truststore_path
         self.state.mtls_ts_pwd = truststore_pwd
         self.state.mtls_trusted_certs = cert_chain
@@ -128,12 +148,12 @@ class ZookeeperRelation(Object):
 
     def on_zookeeper_relation_changed(self, event):
         zk_list = []
-        for u in self._relation.units:
-            if not self._relation.data[u]["endpoint"]:
+        for u in self.relation.units:
+            if "endpoint" not in self.relation.data[u]:
                 continue
-            if len(self._relation.data[u]["endpoint"]) == 0:
+            if len(self.relation.data[u]["endpoint"]) == 0:
                 continue
-            zk_list.append(self._relation.data[u]["endpoint"])
+            zk_list.append(self.relation.data[u]["endpoint"])
         self.state.zk_list = ",".join(zk_list)
         self._get_all_mtls_cert()
 
@@ -144,10 +164,6 @@ class ZookeeperProvidesRelation(ZookeeperRelation):
                  user="", group="", mode=0):
         super().__init__(charm, relation_name,
                          user=user, group=group, mode=mode)
-        self.framework.observe(charm.on.zookeeper_relation_changed,
-                               self.on_zookeeper_relation_changed)
-        self.framework.observe(charm.on.zookeeper_relation_joined,
-                               self.on_zookeeper_relation_joined)
         self._hostname = hostname
         self._port = port
 
@@ -155,7 +171,7 @@ class ZookeeperProvidesRelation(ZookeeperRelation):
         # Get unit's own hostname and pass that via relation
         hostname = self._hostname if self._hostname \
             else get_hostname(self.advertise_addr)
-        self._relation.data[self._unit]["endpoint"] = \
+        self.relation.data[self.unit]["endpoint"] = \
             "{}:{}".format(hostname, self._port)
 
     def on_zookeeper_relation_changed(self, event):
@@ -176,4 +192,3 @@ class ZookeeperRequiresRelation(ZookeeperRelation):
                  user="", group="", mode=0):
         super().__init__(charm, relation_name,
                          user=user, group=group, mode=mode)
-        self.framework.observe(charm.on.zookeeper_relation_changed, self)

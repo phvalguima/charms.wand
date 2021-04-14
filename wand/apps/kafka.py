@@ -22,7 +22,6 @@ from ops.model import BlockedStatus
 
 from charmhelpers.fetch.ubuntu import apt_update
 from charmhelpers.fetch.ubuntu import add_source
-from charmhelpers.fetch.ubuntu import apt_install
 from charmhelpers.core.host import mount
 from charmhelpers.core.templating import render
 
@@ -78,8 +77,9 @@ class KafkaJavaCharmBase(JavaCharmBase):
         version = self.config.get("version", self.LATEST_VERSION_CONFLUENT)
         if self.distro == "confluent":
             url_key = 'https://packages.confluent.io/deb/{}/archive.key'
-            key = subprocess.check_output(['wget', '-qO', '-',
-                                           url_key.format(version)])
+            key = subprocess.check_output(
+                      ['wget', '-qO', '-',
+                       url_key.format(version)]).decode("ascii")
             url_apt = \
                 'deb [arch=amd64] https://packages.confluent.io/deb/{}' + \
                 ' stable main'
@@ -89,8 +89,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
             apt_update()
         elif self.distro == "apache":
             raise Exception("Not Implemented Yet")
-
-        apt_install(packages)
+        super().install_packages(java_version, packages)
 
     def is_client_ssl_enabled(self):
         # TODO(pguimaraes): add support for certificate endpoint

@@ -19,7 +19,9 @@ from mock import patch
 from ops.testing import Harness
 
 import wand.apps.kafka as kafka
+import wand.contrib.java as java
 from wand.contrib.linux import getCurrentUserAndGroup
+
 
 # Set logger to the module to be mocked
 logger = logging.getLogger("wand.apps.kafka")
@@ -67,6 +69,28 @@ class TestAppKafka(unittest.TestCase):
                          data_log_dir="",
                          data_log_fs=None)
         mock_warning.assert_called()
+
+    @patch.object(java.JavaCharmBase, "install_packages")
+    @patch.object(kafka, "apt_update")
+    @patch.object(kafka, "add_source")
+    def test_install_packages(self,
+                              mock_add_source,
+                              mock_apt_update,
+                              mock_java_inst_pkgs):
+        harness = Harness(kafka.KafkaJavaCharmBase)
+        self.addCleanup(harness.cleanup)
+        harness.begin()
+        harness._update_config({
+            "distro": "confluent",
+            "version": "6.1"
+        })
+        k = harness.charm
+        k.install_packages("openjdk-11-headless", ["test"])
+        self.assertIn(
+            "deb [arch=amd64] https://packages.confluent.io/deb/6.1" +
+            " stable main", mock_add_source.call_args[0])
+        mock_apt_update.assert_called()
+        mock_java_inst_pkgs.assert_called()
 
     @patch.object(logger, "warning")
     @patch.object(shutil, "chown")
