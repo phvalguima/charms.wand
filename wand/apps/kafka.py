@@ -17,6 +17,7 @@ import logging
 import yaml
 
 from wand.contrib.java import JavaCharmBase
+from wand.contrib.linux import userAdd, groupAdd
 
 from ops.model import BlockedStatus
 
@@ -142,6 +143,10 @@ class KafkaJavaCharmBase(JavaCharmBase):
     def is_jmxexporter_enabled(self):
         # TODO(pguimaraes): implement this logic
         return False
+
+    def _on_install(self, event):
+        groupAdd(self.config["group"], system=True)
+        userAdd(self.config["user"], group=self.config["group"])
 
     def create_log_dir(self, data_log_dev,
                        data_log_dir,
