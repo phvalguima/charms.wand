@@ -1,18 +1,49 @@
 import os
 import pathlib
 import subprocess
+import pwd
+import grp
 
-__all__= [
+__all__ = [
     "LinuxError",
+    "LinuxUserDoesNotExistError",
+    "LinuxGroupDoesNotExistError",
+    "LinuxGroupAlreadyExistsError",
+    "LinuxUserAlreadyExistsError",
     "getUserAndGroupOfFolder",
     "getCurrentUserAndGroup",
     "userAdd",
     "groupAdd"
 ]
 
+
 class LinuxError(Exception):
     def __init__(self, message):
         super().__init__(self.message)
+
+
+class LinuxUserDoesNotExistError(Exception):
+    def __init__(self, user):
+        super().__init__(
+            "User {} does not exist.".format(user))
+
+
+class LinuxUserAlreadyExistsError(Exception):
+    def __init__(self, user):
+        super().__init__(
+            "User {} already exists".format(user))
+
+
+class LinuxGroupDoesNotExistError(Exception):
+    def __init__(self, group):
+        super().__init__(
+            "Group {} does not exist.".format(group))
+
+
+class LinuxGroupAlreadyExistsError(Exception):
+    def __init__(self, group):
+        super().__init__(
+            "Group {} already exists.".format(group))
 
 
 def getUserAndGroupOfFolder(folderpath):
@@ -34,12 +65,23 @@ def userAdd(username,
             system=None,
             shell=None):
 
+    alreadyExists = True
+    try:
+        pwd.getpwnam(username)
+    except KeyError:
+        alreadyExists = False
+    if alreadyExists:
+        raise LinuxUserAlreadyExistsError(username)
+
+    if group:
+        try:
+            grp.getgrnam(group)
+        except KeyError:
+            raise LinuxGroupDoesNotExistError(group)
+
     cmd = ["useradd"]
     if uid:
         cmd += ["-u", uid]
-# TODO(pguimaraes): create groupExists call
-#    if group and not groupExists(group):
-#        raise LinuxError("userAdd: failed to find defined group")
     if group:
         cmd += ["-g", group]
     elif group_list:
@@ -59,6 +101,14 @@ def userAdd(username,
 def groupAdd(groupname,
              system=None,
              gid=None):
+    alreadyExists = True
+    try:
+        grp.getgrnam(groupname)
+    except KeyError:
+        alreadyExists = False
+    if alreadyExists:
+        raise LinuxGroupAlreadyExistsError(groupname)
+
     cmd = ["groupadd"]
     if gid:
         cmd += ["-g", gid]

@@ -17,7 +17,12 @@ import logging
 import yaml
 
 from wand.contrib.java import JavaCharmBase
-from wand.contrib.linux import userAdd, groupAdd
+from wand.contrib.linux import (
+    userAdd,
+    groupAdd,
+    LinuxUserAlreadyExistsError,
+    LinuxGroupAlreadyExistsError
+)
 
 from ops.model import BlockedStatus
 
@@ -145,8 +150,14 @@ class KafkaJavaCharmBase(JavaCharmBase):
         return False
 
     def _on_install(self, event):
-        groupAdd(self.config["group"], system=True)
-        userAdd(self.config["user"], group=self.config["group"])
+        try:
+            groupAdd(self.config["group"], system=True)
+        except LinuxGroupAlreadyExistsError:
+            pass
+        try:
+            userAdd(self.config["user"], group=self.config["group"])
+        except LinuxUserAlreadyExistsError:
+            pass
 
     def create_log_dir(self, data_log_dev,
                        data_log_dir,
