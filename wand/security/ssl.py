@@ -180,7 +180,8 @@ def PKCS12CreateKeystore(keystore_path,
                          mode=None,
                          openssl_chain_path="/tmp/ks-charm-cert.chain",
                          openssl_key_path="/tmp/ks-charm.key",
-                         openssl_p12_path="/tmp/ks-charm.p12"):
+                         openssl_p12_path="/tmp/ks-charm.p12",
+                         ks_regenerate=False):
 
     # We've saved the key and cert to /tmp, we cannot leave it there
     # clean it up:
@@ -190,7 +191,11 @@ def PKCS12CreateKeystore(keystore_path,
                 os.remove(i)
             except Exception:
                 pass
-
+    if ks_regenerate:
+        try:
+            os.remove(keystore_path)
+        except Exception:
+            pass
     try:
         with open(openssl_chain_path, "w") as f:
             f.write(ssl_chain)

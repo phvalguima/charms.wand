@@ -4,6 +4,7 @@ from ops.framework import StoredState
 from wand.security.ssl import CreateTruststore
 
 __all__ = [
+    "KafkaRelationBaseNotUsedError",
     "KafkaRelationBaseTLSNotSetError",
     "KafkaRelationBase",
 ]
@@ -13,6 +14,12 @@ class KafkaRelationBaseTLSNotSetError(Exception):
 
     def __init__(self,
                  message="TLS detected on the relation but not on this unit"):
+        super().__init__(message)
+
+
+class KafkaRelationBaseNotUsedError(Exception):
+    def __init__(self,
+                 message="There is no connections to this relation yet"):
         super().__init__(message)
 
 
@@ -65,15 +72,14 @@ class KafkaRelationBase(Object):
         return self._unit
 
     @property
-    def relation(self):
-        return self._relation
-
-    @property
-    def _relations(self):
+    def relations(self):
         return self.framework.model.relations[self._relation_name]
 
     def _get_all_tls_cert(self):
         if not self.is_TLS_enabled():
+            # If there is no tls announced by relation peers,
+            # then CreateTruststore is not needed. Do not raise an Exception
+            # given it will use non-encrypted communication instead
             return
         self.state.trusted_certs = \
             "::".join(list(self.relation.data[u].get("tls_cert", "")
@@ -87,22 +93,28 @@ class KafkaRelationBase(Object):
                          mode=self.state.mode)
 
     def is_TLS_enabled(self):
-        for u in self.relation.units:
-            if self.relation.data[u].get("tls_cert", None):
-                # It is enabled, now we check
-                # if we have it set this unit as well
-                if not self.relation.data[self.unit].get("tls_cert", None):
-                    # we do not, so raise an error to inform it
-                    raise KafkaRelationBaseTLSNotSetError()
-                return True
+        if not self.relations:
+            raise KafkaRelationBaseNotUsedError()
+        for r in self.relations:
+            for u in r.units:
+                if r.data[u].get("tls_cert", None):
+                    # It is enabled, now we check
+                    # if we have it set this unit as well
+                    if not self.relation.data[self.unit].get("tls_cert", None):
+                        # we do not, so raise an error to inform it
+                        raise KafkaRelationBaseTLSNotSetError()
+                    return True
         return False
 
     def set_TLS_auth(self,
                      cert_chain,
                      truststore_path,
                      truststore_pwd):
-        # 1) Publishes the cert on tls_cert
-        self.relation.data[self.unit]["tls_cert"] = cert_chain
+        if not self.relations:
+            raise KafkaRelationBaseNotUsedError()
+        for r in self.relations:
+            # 1) Publishes the cert on tls_cert
+            r.data[self.unit]["tls_cert"] = cert_chain
         self.state.ts_path = truststore_path
         self.state.ts_pwd = truststore_pwd
         self.state.trusted_certs = cert_chain
