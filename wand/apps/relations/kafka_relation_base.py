@@ -44,6 +44,10 @@ class KafkaRelationBase(Object):
         self.state.set_default(mode=mode)
 
     @property
+    def charm(self):
+        return self._charm
+
+    @property
     def user(self):
         return self.state.user
 
@@ -71,6 +75,14 @@ class KafkaRelationBase(Object):
     def unit(self):
         return self._unit
 
+    def all_units(self, relation):
+        u = relation.units.copy()
+        if isinstance(u, set):
+            u.add(self.unit)
+        if isinstance(u, list):
+            u.append(self.unit)
+        return u
+
     @property
     def relations(self):
         return self.framework.model.relations[self._relation_name]
@@ -81,9 +93,11 @@ class KafkaRelationBase(Object):
             # then CreateTruststore is not needed. Do not raise an Exception
             # given it will use non-encrypted communication instead
             return
-        self.state.trusted_certs = \
-            "::".join(list(self.relation.data[u].get("tls_cert", "")
-                           for u in self.relation.units))
+        crt_list = []
+        for u in self.all_units(self.relation):
+            if "tls_cert" in self.relation.data[u]:
+                crt_list.append(self.relation.data[u]["tls_cert"])
+        self.state.trusted_certs = "::".join(crt_list)
         CreateTruststore(self.state.ts_path,
                          self.state.ts_pwd,
                          self.state.trusted_certs.split("::"),
@@ -96,7 +110,7 @@ class KafkaRelationBase(Object):
         if not self.relations:
             raise KafkaRelationBaseNotUsedError()
         for r in self.relations:
-            for u in r.units:
+            for u in self.all_units(r):
                 if r.data[u].get("tls_cert", None):
                     # It is enabled, now we check
                     # if we have it set this unit as well
@@ -120,3 +134,20 @@ class KafkaRelationBase(Object):
         self.state.trusted_certs = cert_chain
         # 2) Grab any already-published tls certs and generate the truststore
         self._get_all_tls_cert()
+
+    @property
+    def peer_addresses(self):
+        addresses = []
+        for u in self.relation.units:
+            addresses.append(self.relation.data[u]["ingress-address"])
+        return addresses
+
+    @property
+    def advertise_addr(self):
+        m = self.model
+        return str(m.get_binding(self._relation_name).network.ingress_address)
+
+    @property
+    def binding_addr(self):
+        m = self.model
+        return str(m.get_binding(self._relation_name).network.bind_address)
