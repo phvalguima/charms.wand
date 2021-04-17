@@ -28,6 +28,11 @@ logger = logging.getLogger("wand.apps.kafka")
 
 OVERRIDE_CONF = """
 [Service]
+
+User=test
+
+Group=test
+
 Environment=\"KAFKA_HEAP_OPTS=-Xmx1g\"
 Environment=\"KAFKA_LOG4J_OPTS=-Dlog4j.configuration=file:/etc/kafka/zookeeper-log4j.properties\"
 Environment=\"LOG_DIR=/var/log/kafka\"
@@ -70,13 +75,15 @@ class TestAppKafka(unittest.TestCase):
                          data_log_fs=None)
         mock_warning.assert_called()
 
+    @patch.object(kafka.KafkaJavaCharmBase, "set_folders_and_permissions")
     @patch.object(java.JavaCharmBase, "install_packages")
     @patch.object(kafka, "apt_update")
     @patch.object(kafka, "add_source")
     def test_install_packages(self,
                               mock_add_source,
                               mock_apt_update,
-                              mock_java_inst_pkgs):
+                              mock_java_inst_pkgs,
+                              mock_set_folders_perms):
         harness = Harness(kafka.KafkaJavaCharmBase)
         self.addCleanup(harness.cleanup)
         harness.begin()
@@ -112,16 +119,19 @@ class TestAppKafka(unittest.TestCase):
             data_fs=None)
         mock_warning.assert_called()
 
+    @patch.object(kafka.KafkaJavaCharmBase, "set_folders_and_permissions")
     @patch.object(kafka, "render")
     @patch.object(kafka.KafkaJavaCharmBase, "is_sasl_kerberos_enabled")
     @patch.object(kafka.KafkaJavaCharmBase, "is_ssl_enabled")
     def test_render_override_conf(self,
                                   mock_ssl_enabled,
                                   mock_krbs,
-                                  mock_render):
+                                  mock_render,
+                                  mock_set_folder_perms):
         def __cleanup():
             try:
-                os.remove("/tmp/13fnutest.service")
+                os.remove("/tmp/13fnutest/13fnutest.service")
+                os.remove("/tmp/13fnutest")
             except: # noqa
                 pass
 
@@ -133,17 +143,19 @@ class TestAppKafka(unittest.TestCase):
         self.addCleanup(harness.cleanup)
         harness.begin()
         k = harness.charm
+        k.service = "13fnutest"
         # We do not have config-changed here
         # and we do not want to trigger it
         user, group = getCurrentUserAndGroup()
         harness._update_config(key_values={
-            "user": user,
-            "group": group,
+            "user": "test",
+            "group": "test",
             "service-unit-overrides": '',
             "service-overrides": "",
-            "service-environment-overrides": SVC_ENV_OVERRIDE
+            "service-environment-overrides": SVC_ENV_OVERRIDE,
         })
-        k.render_service_override_file(target="/tmp/13fnutest.service")
+        k.render_service_override_file(
+            target="/tmp/13fnutest/13fnutest.service")
         mock_render.assert_called()
         rendered = self._simulate_render(
             ctx=mock_render.call_args.kwargs["context"],

@@ -53,6 +53,8 @@ class KafkaRelationBase(Object):
 
     @user.setter
     def user(self, x):
+        if not x or len(x) == 0:
+            return
         self.state.user = x
 
     @property
@@ -61,6 +63,8 @@ class KafkaRelationBase(Object):
 
     @group.setter
     def group(self, x):
+        if not x or len(x) == 0:
+            return
         self.state.group = x
 
     @property
@@ -76,12 +80,23 @@ class KafkaRelationBase(Object):
         return self._unit
 
     def all_units(self, relation):
-        u = relation.units.copy()
+        u = []
+        if isinstance(relation, list):
+            for r in relation:
+                for uni in r.units:
+                    u.append(uni)
+        else:
+            u = relation.units.copy()
+        # as .copy may have been used, that can be a set():
         if isinstance(u, set):
             u.add(self.unit)
         if isinstance(u, list):
             u.append(self.unit)
         return u
+
+    @property
+    def relation(self):
+        return self.framework.model.get_relation(self._relation_name)
 
     @property
     def relations(self):
@@ -111,10 +126,10 @@ class KafkaRelationBase(Object):
             raise KafkaRelationBaseNotUsedError()
         for r in self.relations:
             for u in self.all_units(r):
-                if r.data[u].get("tls_cert", None):
+                if "tls_cert" in r.data[u]:
                     # It is enabled, now we check
                     # if we have it set this unit as well
-                    if not self.relation.data[self.unit].get("tls_cert", None):
+                    if "tls_cert" not in r.data[self.unit]:
                         # we do not, so raise an error to inform it
                         raise KafkaRelationBaseTLSNotSetError()
                     return True
@@ -123,7 +138,10 @@ class KafkaRelationBase(Object):
     def set_TLS_auth(self,
                      cert_chain,
                      truststore_path,
-                     truststore_pwd):
+                     truststore_pwd,
+                     user=None,
+                     group=None,
+                     mode=None):
         if not self.relations:
             raise KafkaRelationBaseNotUsedError()
         for r in self.relations:
@@ -132,6 +150,12 @@ class KafkaRelationBase(Object):
         self.state.ts_path = truststore_path
         self.state.ts_pwd = truststore_pwd
         self.state.trusted_certs = cert_chain
+        if user:
+            self.state.user = user
+        if group:
+            self.state.group = group
+        if mode:
+            self.state.mode = mode
         # 2) Grab any already-published tls certs and generate the truststore
         self._get_all_tls_cert()
 

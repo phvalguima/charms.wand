@@ -16,6 +16,9 @@ import subprocess
 import logging
 import yaml
 
+import pwd
+import grp
+
 from wand.contrib.java import JavaCharmBase
 from wand.contrib.linux import (
     userAdd,
@@ -24,7 +27,7 @@ from wand.contrib.linux import (
     LinuxGroupAlreadyExistsError
 )
 
-from ops.model import BlockedStatus
+from ops.model import BlockedStatus, MaintenanceStatus
 
 from charmhelpers.fetch.ubuntu import apt_update
 from charmhelpers.fetch.ubuntu import add_source
@@ -63,6 +66,13 @@ Environment="{{key}}={{value}}"
 {% endfor %}""" # noqa
 
 
+class KafkaCharmBaseFeatureNotImplementedError(Exception):
+
+    def __init__(self,
+                 message="This feature has not been implemented yet"):
+        super().__init__(message)
+
+
 class KafkaJavaCharmBase(JavaCharmBase):
 
     LATEST_VERSION_CONFLUENT = "6.1"
@@ -76,10 +86,17 @@ class KafkaJavaCharmBase(JavaCharmBase):
     def distro(self):
         return self.config.get("distro", "confluent").lower()
 
+    def _get_service_name(self):
+        return None
+
     def __init__(self, *args):
         super().__init__(*args)
+        self.service = self._get_service_name()
+        # This folder needs to be set as root
+        os.makedirs("/var/ssl/private", exist_ok=True)
 
     def install_packages(self, java_version, packages):
+        MaintenanceStatus("Installing packages")
         version = self.config.get("version", self.LATEST_VERSION_CONFLUENT)
         if self.distro == "confluent":
             url_key = 'https://packages.confluent.io/deb/{}/archive.key'
@@ -96,6 +113,17 @@ class KafkaJavaCharmBase(JavaCharmBase):
         elif self.distro == "apache":
             raise Exception("Not Implemented Yet")
         super().install_packages(java_version, packages)
+        folders = ["/etc/kafka", "/var/log/kafka", "/var/lib/kafka"]
+        self.set_folders_and_permissions(folders)
+
+    def set_folders_and_permissions(self, folders):
+        # Check folder permissions
+        MaintenanceStatus("Setting up permissions")
+        uid = pwd.getpwnam(self.config.get("user", "root")).pw_uid
+        gid = grp.getgrnam(self.config.get("group", "root")).gr_gid
+        for f in folders:
+            os.makedirs(f, mode=0o750, exist_ok=True)
+            os.chown(f, uid, gid)
 
     def is_client_ssl_enabled(self):
         # TODO(pguimaraes): add support for certificate endpoint
@@ -289,13 +317,21 @@ class KafkaJavaCharmBase(JavaCharmBase):
             # however, it was not, so removing it
             service_environment_overrides.pop("KAFKA_OPTS", None)
 
-        if service_overrides:
-            if self.config.get('user', "") in service_overrides and \
-               self.config.get('group', "") in service_overrides:
-                service_overrides["User"] = \
-                    self.config.get('user')
-                service_overrides["Group"] = \
-                    self.config.get('group')
+        # Even if service_overrides is not defined, User and Group need to be
+        # correctly set if this option was passed to the charm.
+        if not service_overrides:
+            service_overrides = {}
+        for d in ["User", "Group"]:
+            dlower = d.lower()
+            if dlower in self.config and \
+               len(self.config.get(dlower, "")) > 0:
+                if self.config.get("distro", "confluent").lower() == \
+                   "confluent":
+                    service_overrides[d] = self.config.get(dlower)
+                elif self.config.get("distro", "confluent").lower() == \
+                        "apache":
+                    raise KafkaCharmBaseFeatureNotImplementedError()
+        self.set_folders_and_permissions([os.path.dirname(target)])
         render(source="kafka_override.conf.j2",
                target=target,
                owner=self.config.get('user'),
