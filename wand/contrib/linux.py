@@ -3,6 +3,9 @@ import pathlib
 import subprocess
 import pwd
 import grp
+from python_hosts import Hosts, HostsEntry
+
+from charmhelpers.contrib.network import ip
 
 __all__ = [
     "LinuxError",
@@ -13,7 +16,9 @@ __all__ = [
     "getUserAndGroupOfFolder",
     "getCurrentUserAndGroup",
     "userAdd",
-    "groupAdd"
+    "groupAdd",
+    "fixMaybeLocalhost",
+    "get_hostname"
 ]
 
 
@@ -116,3 +121,39 @@ def groupAdd(groupname,
         cmd += ["-r"]
     cmd += [groupname]
     return subprocess.check_call(cmd)
+
+
+# The issue: generally Zookeeper hosts come with:
+# 127.0.0.1 <server-name>
+# That forces inter-cluster to open only to localhost interface
+# if server.X=<server-name>
+# To resolve that, any entries for hostnames parameter will be removed
+# and readded with the correct IP address.
+def fixMaybeLocalhost(hosts_path="/etc/hosts",
+                      hostname=None,
+                      IP=None):
+    hosts = Hosts(path=hosts_path)
+    removed_hosts = []
+    # Consider cases where it is added both node.maas and node
+    for h in [hostname.split(".")[0], hostname]:
+        r = hosts.remove_all_matching(name=h)
+        if r:
+            removed_hosts += [str(el) for el in r]
+    hosts.add([HostsEntry(entry_type='ipv4',
+                          address=IP, names=[hostname])])
+    # Check if localhost exists, if not, set it to 127.0.0.1
+    if len(hosts.find_all_matching(name="localhost")) == 0:
+        # Set localhost
+        hosts.add([HostsEntry(entry_type='ipv4',
+                              address='127.0.0.1', names=["localhost"])])
+    hosts.write()
+    return removed_hosts
+
+
+def get_hostname(ipaddr):
+    if not ipaddr:
+        return
+    h = ip.get_hostname(ipaddr)
+    if h:
+        fixMaybeLocalhost(hostname=h, IP=ipaddr)
+    return h

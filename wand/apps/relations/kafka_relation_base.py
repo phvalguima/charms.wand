@@ -121,10 +121,17 @@ class KafkaRelationBase(Object):
                          group=self.state.group,
                          mode=self.state.mode)
 
-    def is_TLS_enabled(self):
-        if not self.relations:
+    def is_TLS_enabled(self, relation=None):
+        if not relation and not self.relations:
             raise KafkaRelationBaseNotUsedError()
-        for r in self.relations:
+        rel = relation
+        if not rel:
+            rel = self.relations
+        elif isinstance(rel, list):
+            rel = relation
+        else:
+            rel = [relation]
+        for r in rel:
             for u in self.all_units(r):
                 if "tls_cert" in r.data[u]:
                     # It is enabled, now we check

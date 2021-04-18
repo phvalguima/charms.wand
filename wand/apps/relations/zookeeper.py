@@ -10,7 +10,7 @@
 #  License for the specific language governing permissions and limitations
 #  under the License.
 
-from charmhelpers.contrib.network.ip import get_hostname
+from wand.contrib.linux import get_hostname
 
 from wand.apps.relations.kafka_relation_base import KafkaRelationBase
 
