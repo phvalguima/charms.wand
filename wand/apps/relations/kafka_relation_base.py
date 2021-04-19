@@ -81,6 +81,8 @@ class KafkaRelationBase(Object):
 
     def all_units(self, relation):
         u = []
+        if not relation:
+            return u
         if isinstance(relation, list):
             for r in relation:
                 for uni in r.units:
@@ -170,7 +172,7 @@ class KafkaRelationBase(Object):
     def peer_addresses(self):
         addresses = []
         for u in self.relation.units:
-            addresses.append(self.relation.data[u]["ingress-address"])
+            addresses.append(str(self.relation.data[u]["ingress-address"]))
         return addresses
 
     @property

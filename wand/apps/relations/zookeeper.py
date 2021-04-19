@@ -72,11 +72,6 @@ class ZookeeperRelation(KafkaRelationBase):
     def get_zookeeper_list(self):
         return self.state.zk_list
 
-    @property
-    def advertise_addr(self):
-        return self.model.get_binding(self._relation_name) \
-               .network.ingress_address
-
     # TODO(pguimaraes): complete this method. So far returns False as it is
     # not an option atm
     def is_sasl_enabled(self):
@@ -126,7 +121,7 @@ class ZookeeperProvidesRelation(ZookeeperRelation):
 
     def on_zookeeper_relation_changed(self, event):
         # First, update this unit entry for "endpoint"
-        self.on_zookeper_relation_joined(event)
+        self.on_zookeeper_relation_joined(event)
         # Second, recover data from peers
         # Third, check if tls_cert has been set. If so, check
         # if any of the other peers have also published tls for the
