@@ -41,12 +41,12 @@ class ZookeeperRelationTest(unittest.TestCase):
                   new_callable=PropertyMock)
     @patch.object(zkRelation.ZookeeperProvidesRelation, "unit",
                   new_callable=PropertyMock)
-    @patch.object(zkRelation.ZookeeperProvidesRelation, "advertise_addr",
+    @patch.object(zkRelation.ZookeeperProvidesRelation, "binding_addr",
                   new_callable=PropertyMock)
     @patch.object(zkRelation, "get_hostname")
     def test_zk_provides_changed(self,
                                  mock_get_hostname,
-                                 mock_advertise_addr,
+                                 mock_binding_addr,
                                  mock_unit,
                                  mock_cert_gen,
                                  mock_init,

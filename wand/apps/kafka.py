@@ -269,6 +269,13 @@ class KafkaJavaCharmBase(JavaCharmBase):
                   options=self.config.get("fs-options", None),
                   persist=True, filesystem=fs)
 
+    # To be used on parameter: confluent.license.topic
+    def get_license_topic(self):
+        if self.distro == "confluent":
+            return self.config.get("confluent_license_topic",
+                                   "_confluent-license")
+        return None
+
     def render_service_override_file(self,
                                      target,
                                      jmx_file_name="kafka"):

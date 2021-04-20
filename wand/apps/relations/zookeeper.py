@@ -23,50 +23,19 @@ __all__ = [
 
 class ZookeeperRelation(KafkaRelationBase):
 
-    def __init__(self, charm, relation_name,
+    def __init__(self, charm, relation_name, hostname=None,
                  user="", group="", mode=0):
         super().__init__(charm, relation_name, user, group, mode)
+        self._hostname = hostname
         self._charm = charm
         self._unit = charm.unit
         self._relation_name = relation_name
-        self._relation = self.framework.model.get_relation(self._relation_name)
         self.state.set_default(zk_list="")
 
     @property
-    def user(self):
-        return self.state.user
-
-    @user.setter
-    def user(self, x):
-        self.state.user = x
-
-    @property
-    def group(self):
-        return self.state.group
-
-    @group.setter
-    def group(self, x):
-        self.state.group = x
-
-    @property
-    def mode(self):
-        return self.state.mode
-
-    @mode.setter
-    def mode(self, x):
-        self.state.mode = x
-
-    @property
-    def unit(self):
-        return self._unit
-
-    @property
-    def relation(self):
-        return self._relation
-
-    @property
-    def relations(self):
-        return self.framework.model.relations[self._relation_name]
+    def hostname(self):
+        return self._hostname if self._hostname \
+            else get_hostname(self.binding_addr)
 
     @property
     def get_zookeeper_list(self):
@@ -106,7 +75,7 @@ class ZookeeperProvidesRelation(ZookeeperRelation):
 
     def __init__(self, charm, relation_name, hostname=None, port=2182,
                  user="", group="", mode=0):
-        super().__init__(charm, relation_name,
+        super().__init__(charm, relation_name, hostname=hostname,
                          user=user, group=group, mode=mode)
         self._hostname = hostname
         self._port = port
@@ -115,7 +84,7 @@ class ZookeeperProvidesRelation(ZookeeperRelation):
         # Get unit's own hostname and pass that via relation
         r = event.relation
         hostname = self._hostname if self._hostname \
-            else get_hostname(self.advertise_addr)
+            else get_hostname(self.binding_addr)
         r.data[self.unit]["endpoint"] = \
             "{}:{}".format(hostname, self._port)
 
@@ -130,10 +99,9 @@ class ZookeeperProvidesRelation(ZookeeperRelation):
         super().on_zookeeper_relation_changed(event)
 
 
-# TODO(pguimaraes): Generate the: zookeeper-tls-client.properties.j2
 class ZookeeperRequiresRelation(ZookeeperRelation):
 
-    def __init__(self, charm, relation_name,
+    def __init__(self, charm, relation_name, hostname=None,
                  user="", group="", mode=0):
-        super().__init__(charm, relation_name,
+        super().__init__(charm, relation_name, hostname=hostname,
                          user=user, group=group, mode=mode)
