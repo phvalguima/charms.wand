@@ -52,8 +52,13 @@ class ZookeeperRelation(KafkaRelationBase):
     def set_mTLS_auth(self,
                       cert_chain,
                       truststore_path,
-                      truststore_pwd):
-        self.set_TLS_auth(cert_chain, truststore_path, truststore_pwd)
+                      truststore_pwd,
+                      user=None,
+                      group=None,
+                      mode=None):
+        self.set_TLS_auth(
+            cert_chain, truststore_path, truststore_pwd,
+            user=user, group=group, mode=mode)
 
     def on_zookeeper_relation_joined(self, event):
         pass
