@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import logging
 import yaml
+import socket
 
 import pwd
 import grp
@@ -33,6 +34,11 @@ from charmhelpers.fetch.ubuntu import apt_update
 from charmhelpers.fetch.ubuntu import add_source
 from charmhelpers.core.host import mount
 from charmhelpers.core.templating import render
+
+from wand.apps.relations.tls_certificates import (
+    TLSCertificateDataNotFoundInRelationError,
+    TLSCertificateRelationNotPresentError
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +75,8 @@ Environment="{{key}}={{value}}"
 class KafkaCharmBaseFeatureNotImplementedError(Exception):
 
     def __init__(self,
-                 message="This feature has not been implemented yet"):
+                 message="This feature has not"
+                         " been implemented yet"):
         super().__init__(message)
 
 
@@ -94,6 +101,12 @@ class KafkaJavaCharmBase(JavaCharmBase):
         self.service = self._get_service_name()
         # This folder needs to be set as root
         os.makedirs("/var/ssl/private", exist_ok=True)
+        # Variable to be used to hold TLSCertificatesRelation object
+        self.certificates = None
+        # List of callable methods that allow to get all the SSL certs/keys
+        # This list will be used to iterate over each of the methods on
+        # is_ssl_enabled
+        self.get_ssl_methods_list = []
 
     def install_packages(self, java_version, packages):
         MaintenanceStatus("Installing packages")
@@ -125,20 +138,77 @@ class KafkaJavaCharmBase(JavaCharmBase):
             os.makedirs(f, mode=0o750, exist_ok=True)
             os.chown(f, uid, gid)
 
-    def is_client_ssl_enabled(self):
-        # TODO(pguimaraes): add support for certificate endpoint
-        # if ssl_* config is set, this takes precedence otherwise
-        # vault relation should be used to provide certificates.
-        if len(self.config.get("ssl_cert", "")) > 0 and \
-           len(self.config.get("ssl_key", "")) > 0:
-            return True
-        if len(self.config.get("ssl_cert", "")) > 0 or \
-           len(self.config.get("ssl_key", "")) > 0:
+    def is_ssl_enabled(self):
+        # We will OR rel_set with each available method for getting cert/key
+        # Should start with False
+        rel_set = True
+        for m in self.get_ssl_methods_list:
+            rel_set = rel_set and m()
+        if not rel_set:
             logger.warning("Only some of the ssl configurations have been set")
+        return rel_set
+
+    def is_rbac_enabled(self):
+        if self.distro == "apache":
+            return False
         return False
 
-    def is_ssl_enabled(self):
-        return False
+    def _cert_relation_set(self, event, rel=None, extra_sans=[]):
+        # generate cert request if tls-certificates available
+        # rel may be set to None in cases such
+        # as config-changed or install events
+        # In these cases, the goal is to run the
+        # validation at the end of this method
+        if rel:
+            if self.certificates.relation and rel.relation:
+                sans = [
+                    rel.binding_addr,
+                    rel.advertise_addr,
+                    rel.hostname,
+                    socket.gethostname()
+                ]
+                sans += extra_sans
+                # Common name is always CN as this is the element
+                # that organizes the cert order from tls-certificates
+                self.certificates.request_server_cert(
+                    cn=rel.binding_addr,
+                    sans=sans)
+            logger.info("Either certificates "
+                        "relation not ready or not set")
+        # This try/except will raise an exception if
+        # tls-certificate is set and there is no
+        # certificate available on the relation yet. That will also cause the
+        # event to be deferred, waiting for certificates relation to finish
+        # If tls-certificates is not set, then the try
+        # will run normally, either
+        # marking there is no certificate configuration
+        # set or concluding the method.
+        try:
+            # Iterated over each of the methods present on the list and all  of
+            # them returned a cert or key.
+            if not self.is_ssl_enabled():
+                self.model.unit.status = \
+                    BlockedStatus("Waiting for certificates"
+                                  " relation or option")
+                logger.info("Waiting for certificates"
+                            " relation to publish data")
+                return False
+        # These excepts will treat the case tls-certificates relation is used
+        # but the relation is not ready yet
+        # KeyError is also a possibility, if get_ssl_cert is called before any
+        # event that actually submits a request for a cert is done
+        except (TLSCertificateDataNotFoundInRelationError,
+                TLSCertificateRelationNotPresentError,
+                KeyError):
+            self.model.unit.status = \
+                BlockedStatus("There is no certificate option or "
+                              "relation set, waiting...")
+            logger.warning("There is no certificate option or "
+                           "relation set, waiting...")
+            if event:
+                event.defer()
+            return False
+        return True
 
     def is_sasl_enabled(self):
         # This method must be implemented per final charm.
@@ -272,8 +342,8 @@ class KafkaJavaCharmBase(JavaCharmBase):
     # To be used on parameter: confluent.license.topic
     def get_license_topic(self):
         if self.distro == "confluent":
-            return self.config.get("confluent_license_topic",
-                                   "_confluent-license")
+            # If unset, return it empty
+            return self.config.get("confluent_license_topic")
         return None
 
     def render_service_override_file(self,

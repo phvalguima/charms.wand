@@ -1,0 +1,3 @@
+[submodule "wand/contrib/reactive/interface_hacluster"]
+	path = wand/contrib/reactive/interface_hacluster
+	url = https://github.com/openstack/charm-interface-hacluster

@@ -123,7 +123,7 @@ def groupAdd(groupname,
     return subprocess.check_call(cmd)
 
 
-# The issue: generally Zookeeper hosts come with:
+# The issue: generally deployed hosts come with:
 # 127.0.0.1 <server-name>
 # That forces inter-cluster to open only to localhost interface
 # if server.X=<server-name>

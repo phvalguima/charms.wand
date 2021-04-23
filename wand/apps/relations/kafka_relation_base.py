@@ -104,13 +104,13 @@ class KafkaRelationBase(Object):
     def relations(self):
         return self.framework.model.relations[self._relation_name]
 
-    def _get_all_tls_cert(self):
+    def _get_all_tls_cert(self, ext_list=[]):
         if not self.is_TLS_enabled():
             # If there is no tls announced by relation peers,
             # then CreateTruststore is not needed. Do not raise an Exception
             # given it will use non-encrypted communication instead
             return
-        crt_list = []
+        crt_list = list(ext_list)
         for u in self.all_units(self.relation):
             if "tls_cert" in self.relation.data[u]:
                 crt_list.append(self.relation.data[u]["tls_cert"])
@@ -150,11 +150,14 @@ class KafkaRelationBase(Object):
                      truststore_pwd,
                      user=None,
                      group=None,
-                     mode=None):
+                     mode=None,
+                     extra_certs=[]):
         if not self.relations:
             raise KafkaRelationBaseNotUsedError()
         for r in self.relations:
             # 1) Publishes the cert on tls_cert
+            if cert_chain == r.data[self.unit].get("tls_cert", ""):
+                continue
             r.data[self.unit]["tls_cert"] = cert_chain
         self.state.ts_path = truststore_path
         self.state.ts_pwd = truststore_pwd
@@ -166,7 +169,7 @@ class KafkaRelationBase(Object):
         if mode:
             self.state.mode = mode
         # 2) Grab any already-published tls certs and generate the truststore
-        self._get_all_tls_cert()
+        self._get_all_tls_cert(extra_certs)
 
     @property
     def peer_addresses(self):
