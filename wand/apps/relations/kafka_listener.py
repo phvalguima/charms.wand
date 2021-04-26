@@ -145,12 +145,6 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                 keystore_path, keystore_pwd, clientauth)
         if not self.unit.is_leader():
             return None
-#            for r in self.relations:
-#                data = json.loads(r.data[self.model.app]["bootstrap-server"])
-#                data["ks_pwd"] = keystore_pwd
-#                data["ts_pwd"] = self.state.ts_pwd
-#                listeners = {**listeners, **data}
-#            return listeners, self._generate_opts(listeners)
 
         # Leader sets the value
         if get_default:
@@ -174,10 +168,8 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                 addr = None
                 if req.get("is_public", False):
                     addr = "*ADVERTISE*"
-#                    addr = self.advertise_addr
                 else:
                     addr = "*BINDING*"
-#                    addr = self.binding_addr
                 lt = listener_name + \
                     "://" + addr + ":" + \
                     str(self.state.available_port)
@@ -210,12 +202,6 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                 listeners[listener_name]["ks_pwd"] = keystore_pwd
                 listeners[listener_name]["clientauth"] = clientauth
         # update all the units
-#        self._set_bootstrap_data(listeners)
-#        opts = self._generate_opts(listeners,
-#                                   keystore_path,
-#                                   keystore_pwd,
-#                                   get_default,
-#                                   clientauth)
         return json.dumps(listeners)
 
     def _convert_listener_template(self, lst):
