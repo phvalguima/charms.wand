@@ -2,6 +2,7 @@ from ops.framework import Object
 from ops.framework import StoredState
 
 from wand.security.ssl import CreateTruststore
+from wand.contrib.linux import get_hostname
 
 __all__ = [
     "KafkaRelationBaseNotUsedError",
@@ -34,7 +35,8 @@ class KafkaRelationBase(Object):
         self._charm = charm
         self._unit = charm.unit
         self._relation_name = relation_name
-        self._relation = self.framework.model.get_relation(self._relation_name)
+        # Keeping _relation for compatibility reasons
+        self._relation = self.relation
         # :: separated list of trusted_certs for TLS
         self.state.set_default(trusted_certs="")
         self.state.set_default(ts_path="")
@@ -56,6 +58,10 @@ class KafkaRelationBase(Object):
         if not x or len(x) == 0:
             return
         self.state.user = x
+
+    @property
+    def hostname(self):
+        return get_hostname(self.binding_addr)
 
     @property
     def group(self):
@@ -101,6 +107,8 @@ class KafkaRelationBase(Object):
         # Given that get_relation returns either one, None
         # or throws TooManyRelatedAppsError
         # It is better to always return the first element of relations
+        if not self.relations:
+            return
         return self.relations[0]
 
     @property

@@ -1,3 +1,4 @@
+from wand.contrib.linux import get_hostname
 from wand.apps.relations.kafka_relation_base import KafkaRelationBase
 
 __all__ = [
@@ -31,7 +32,7 @@ class KafkaSchemaRegistryRelation(KafkaRelationBase):
         pass
 
     def on_schema_registry_relation_changed(self, event):
-        self._get_all_tls_cert()
+        pass
 
 
 class KafkaSchemaRegistryProvidesRelation(KafkaSchemaRegistryRelation):
@@ -50,17 +51,32 @@ class KafkaSchemaRegistryProvidesRelation(KafkaSchemaRegistryRelation):
         if not self.relation:
             return
         self.relation.data[self.unit]["enhanced_avro"] = \
-            enhanced_avro
+            str(enhanced_avro)
 
-    def set_schema_url(self, url):
-        if not self.relation:
+    def set_schema_url(self, url, port, prot):
+        if not self.relations:
             return
-        self.relation.data[self.unit]["url"] = url
+        resource = None
+        if len(url) > 0:
+            resource = url
+        else:
+            resource = get_hostname(self.advertise_addr)
+        # URL is set to config on schema registry, then the same value will
+        # be passed by each of the schema registry instances. On the requester
+        # side, the value collected is put on a set, which will end as one
+        # single URL.
+        for r in self.relations:
+            r.data[self.unit]["url"] = \
+                "{}://{}:{}".format(
+                    prot if len(prot) > 0 else "https",
+                    url if len(url) > 0 else get_hostname(
+                        self.advertise_addr),
+                    port)
 
     def set_client_auth(self, clientauth):
         if not self.relation:
             return
-        self.relation.data[self.unit]["client_auth"] = self._clientauth
+        self.relation.data[self.unit]["client_auth"] = str(self._clientauth)
 
 
 class KafkaSchemaRegistryRequiresRelation(KafkaSchemaRegistryRelation):
@@ -79,7 +95,16 @@ class KafkaSchemaRegistryRequiresRelation(KafkaSchemaRegistryRelation):
 
     @property
     def url(self):
-        return self.get_param("url")
+        if not self.relations:
+            return
+        # Set is used to avoid repetitive URLs if schema_url config
+        # is set instead of get_hostname of each advertise_addr
+        res = set()
+        for r in self.relations:
+            for u in r.units:
+                if "url" in r.data[u]:
+                    res.add(r.data[u]["url"])
+        return ",".join(res)
 
     def get_param(self, param):
         if not self.relation:

@@ -11,8 +11,15 @@ __all__ = [
     "KafkaListenerRelation",
     "KafkaListenerProvidesRelation",
     "KafkaListenerRequiresRelation",
-    "KafkaListenerRelationNotSetError"
+    "KafkaListenerRelationNotSetError",
+    "KafkaListenerRelationEmptyListenerDictError"
 ]
+
+
+class KafkaListenerRelationEmptyListenerDictError(Exception):
+    def __init__(self,
+                 message="Empty Listener dict provided"):
+        super().__init__(message)
 
 
 class KafkaListenerRelationNotSetError(Exception):
@@ -205,6 +212,8 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
         return json.dumps(listeners)
 
     def _convert_listener_template(self, lst):
+        if not lst or len(lst) == 0:
+            raise KafkaListenerRelationEmptyListenerDictError()
         listeners = lst.replace(
             "*BINDING*", get_hostname(self.binding_addr))
         listeners = listeners.replace(
@@ -212,11 +221,15 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
         listeners = json.loads(listeners)
         return listeners
 
-    def _generate_opts(self, lst,
+    def _generate_opts(self, _lst,
                        keystore_path,
                        keystore_pwd,
                        get_default=True,
                        clientauth=False):
+        if not _lst:
+            raise KafkaListenerRelationEmptyListenerDictError()
+        # In case _lst comes as None
+        lst = _lst or "{}"
         # Convert the template
         listeners = self._convert_listener_template(lst)
         # Now set the options
@@ -262,6 +275,7 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
         return
 
     def on_listener_relation_changed(self, event):
+        self._get_all_tls_cert()
         return
 #        listener, _ = self.get_unit_listener(
 #            keystore_path="",
@@ -270,6 +284,8 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
 #            clientauth=False)
 
     def set_bootstrap_data(self, lst):
+        if not lst or len(lst) == 0:
+            raise KafkaListenerRelationEmptyListenerDictError()
         if not self.relations:
             return
         for r in self.relations:
@@ -336,8 +352,6 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
         self.set_request(req)
 
     def tls_client_auth_enabled(self):
-        servers = []
-        lst_name = self.unit.app.name.replace("-", "_")
         for r in self.relations:
             for u in r.units:
                 if "clientauth" in r.data[u]:
@@ -373,8 +387,11 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
             for u in r.units:
                 if "bootstrap-server" in r.data[u]:
                     req = json.loads(r.data[u]["bootstrap-server"])
-                    endpoint = \
-                        req[lst_name]["bootstrap_server"]
+                    try:
+                        endpoint = \
+                            req[lst_name]["bootstrap_server"]
+                    except KeyError:
+                        raise KafkaListenerRelationNotSetError()
                     servers.append(endpoint)
         return ",".join(servers)
 
