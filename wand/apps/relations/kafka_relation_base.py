@@ -98,7 +98,10 @@ class KafkaRelationBase(Object):
 
     @property
     def relation(self):
-        return self.framework.model.get_relation(self._relation_name)
+        # Given that get_relation returns either one, None
+        # or throws TooManyRelatedAppsError
+        # It is better to always return the first element of relations
+        return self.relations[0]
 
     @property
     def relations(self):
