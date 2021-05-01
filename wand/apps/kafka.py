@@ -10,12 +10,13 @@
 #  License for the specific language governing permissions and limitations
 #  under the License.
 
+import base64
 import os
 import shutil
 import subprocess
 import logging
 import yaml
-import socket
+from socket import gethostname
 
 import pwd
 import grp
@@ -28,12 +29,22 @@ from wand.contrib.linux import (
     LinuxGroupAlreadyExistsError
 )
 
-from ops.model import BlockedStatus, MaintenanceStatus
+from charmhelpers.core.host import (
+    service_running,
+)
+
+from ops.model import (
+    BlockedStatus,
+    MaintenanceStatus,
+    ActiveStatus
+)
 
 from charmhelpers.fetch.ubuntu import apt_update
 from charmhelpers.fetch.ubuntu import add_source
 from charmhelpers.core.host import mount
 from charmhelpers.core.templating import render
+
+from wand.security.ssl import setFilePermissions
 
 from wand.apps.relations.tls_certificates import (
     TLSCertificateDataNotFoundInRelationError,
@@ -41,10 +52,6 @@ from wand.apps.relations.tls_certificates import (
 )
 
 logger = logging.getLogger(__name__)
-
-__all__ = [
-    'KafkaJavaCharmBase'
-]
 
 OVERRIDE_CONF = """{% if service_unit_overrides %}
 [Unit]
@@ -70,6 +77,26 @@ ExecStart=
 Environment="{{key}}={{value}}"
 {% endif %}
 {% endfor %}""" # noqa
+
+__all__ = [
+    'KafkaJavaCharmBase',
+    'KafkaCharmBaseConfigNotAcceptedError',
+    'KafkaCharmBaseMissingConfigError',
+    'KafkaCharmBaseFeatureNotImplementedError'
+]
+
+
+class KafkaCharmBaseConfigNotAcceptedError(Exception):
+
+    def __init__(self, message):
+        super().__init__(message)
+
+
+class KafkaCharmBaseMissingConfigError(Exception):
+
+    def __init__(self,
+                 config_name):
+        super().__init__("Missing config: {}".format(config_name))
 
 
 class KafkaCharmBaseFeatureNotImplementedError(Exception):
@@ -107,6 +134,67 @@ class KafkaJavaCharmBase(JavaCharmBase):
         # This list will be used to iterate over each of the methods on
         # is_ssl_enabled
         self.get_ssl_methods_list = []
+        self._kerberos_principal = None
+        self.ks.set_default(keytab="")
+        self._sasl_protocol = None
+
+    def on_update_status(self, event):
+        if not service_running(self.service) and \
+           not isinstance(self.model.unit.status, ActiveStatus):
+            return
+        if not service_running(self.service):
+            self.model.unit.status = \
+                BlockedStatus("{} not running".format(self.service))
+            return
+        self.model.unit.status = \
+            ActiveStatus("{} is running".format(self.service))
+
+    @property
+    def kerberos_principal(self):
+        # TODO(pguimaraes): check if domain variable below has len > 0
+        # If not, get the IP of the default gateway and rosolve its fqdn
+        hostname = "{}.{}".format(
+            gethostname(),
+            self.config.get("kerberos-domain", ""))
+
+        self._kerberos_principal = "{}/{}@{}".format(
+            self.config.get("kerberos-protocol", "").upper(),
+            hostname,
+            self.config.get("kerberos-realm", "").upper())
+        return self._kerberos_principal
+
+    @kerberos_principal.setter
+    def kerberos_principal(self, k):
+        self._kerberos_principal = k
+
+    @property
+    def keytab(self):
+        return self.ks.keytab
+
+    @keytab.setter
+    def keytab(self, k):
+        self.ks.keytab = k
+
+    @property
+    def sasl_protocol(self):
+        return self._sasl_protocol
+
+    @sasl_protocol.setter
+    def sasl_protocol(self, s):
+        self._sasl_protocol = s
+
+    def _upload_keytab_base64(self, k, filename="kafka.keytab"):
+        """Receives the keytab in base64 format and saves to correct file"""
+        filepath = "/etc/security/keytabs/{}".format(filename)
+        self.set_folders_and_permissions(
+            [os.path.dirname(filepath)],
+            mode=0o755)
+        with open(filepath, "wb") as f:
+            f.write(base64.b64decode(k))
+            f.close()
+        setFilePermissions(filepath, self.config.get("user", "root"),
+                           self.config.get("group", "root"), 0o640)
+        self.keytab = filename
 
     def install_packages(self, java_version, packages):
         MaintenanceStatus("Installing packages")
@@ -129,13 +217,13 @@ class KafkaJavaCharmBase(JavaCharmBase):
         folders = ["/etc/kafka", "/var/log/kafka", "/var/lib/kafka"]
         self.set_folders_and_permissions(folders)
 
-    def set_folders_and_permissions(self, folders):
+    def set_folders_and_permissions(self, folders, mode=0o750):
         # Check folder permissions
         MaintenanceStatus("Setting up permissions")
         uid = pwd.getpwnam(self.config.get("user", "root")).pw_uid
         gid = grp.getgrnam(self.config.get("group", "root")).gr_gid
         for f in folders:
-            os.makedirs(f, mode=0o750, exist_ok=True)
+            os.makedirs(f, mode=mode, exist_ok=True)
             os.chown(f, uid, gid)
 
     def is_ssl_enabled(self):
@@ -165,7 +253,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
                     rel.binding_addr,
                     rel.advertise_addr,
                     rel.hostname,
-                    socket.gethostname()
+                    gethostname()
                 ]
                 sans += extra_sans
                 # Common name is always CN as this is the element
@@ -211,10 +299,27 @@ class KafkaJavaCharmBase(JavaCharmBase):
         return True
 
     def is_sasl_enabled(self):
-        # This method must be implemented per final charm.
-        # E.g. zookeeper supports digest and kerberos
-        # while broker does not support digest but does support LDAP
-        return False
+        s = self.config.get("sasl-protocol", None)
+        if not s:
+            return False
+        self.sasl_protocol = s.lower()
+        s = self.sasl_protocol
+        if s == "oauthbearer":
+            return self.is_sasl_oauthbearer_enabled()
+        if s == "scram":
+            return self.is_sasl_scram_enabled()
+        if s == "plain":
+            return self.is_sasl_plain_enabled()
+        if s == "delegate-token":
+            return self.is_sasl_delegate_token_enabled()
+        if s == "kerberos":
+            return self.is_sasl_kerberos_enabled()
+        if s == "digest":
+            return self.is_sasl_digest_enable()
+        raise KafkaCharmBaseConfigNotAcceptedError(
+            "None of the options for sasl-protocol are accepted. "
+            "Please provide one of the following: oauthbearer, scram,"
+            "plain, delegate-token, kerberos, digest.")
 
     def is_sasl_oauthbearer_enabled(self):
         return False
@@ -232,7 +337,28 @@ class KafkaJavaCharmBase(JavaCharmBase):
         return False
 
     def is_sasl_kerberos_enabled(self):
-        # TODO(pguimaraes): implement this logic
+        mandatory_options = [
+            "kerberos-protocol",
+            "kerberos-realm",
+            "kerberos-domain",
+            "kerberos-kdc-hostname",
+            "kerberos-admin-hostname"
+            ]
+        c = 0
+        for e in mandatory_options:
+            if len(self.config.get(e, None)) == 0:
+                c += 1
+        if c == len(mandatory_options):
+            # None of the mandatory items are set, it means
+            # the operator does not want it
+            return False
+        if c == 0:
+            # All options are set, we can return True
+            return True
+        # There are some items unset, warn:
+        for e in mandatory_options:
+            if len(self.config.get(e, None)) == 0:
+                raise KafkaCharmBaseMissingConfigError(e)
         return False
 
     def is_sasl_digest_enabled(self):
@@ -359,40 +485,30 @@ class KafkaJavaCharmBase(JavaCharmBase):
         if "KAFKA_OPTS" not in service_environment_overrides:
             # Assume it will be needed, so adding it
             service_environment_overrides["KAFKA_OPTS"] = ""
-
+        kafka_opts = []
         if self.is_ssl_enabled():
-            if len(service_environment_overrides["KAFKA_OPTS"]) > 0:
-                service_environment_overrides["KAFKA_OPTS"] += " "
-            service_environment_overrides["KAFKA_OPTS"] = \
-                service_environment_overrides["KAFKA_OPTS"] + \
-                "-Djdk.tls.ephemeralDHKeySize=2048"
-        if self.is_sasl_kerberos_enabled() or self.is_sasl_digest_enabled():
-            if len(service_environment_overrides["KAFKA_OPTS"]) > 0:
-                service_environment_overrides["KAFKA_OPTS"] += " "
-            service_environment_overrides["KAFKA_OPTS"] = \
-                service_environment_overrides["KAFKA_OPTS"] + \
-                "-Djava.security.auth.login.config=" + \
-                "/etc/kafka/jaas.conf"
+            kafka_opts.append("-Djdk.tls.ephemeralDHKeySize=2048")
+        if self.is_sasl_enabled():
+            kafka_opts.append(
+                "-Djava.security.auth.login.config="
+                "/etc/kafka/jaas.conf")
         if self.is_jolokia_enabled():
-            if len(service_environment_overrides["KAFKA_OPTS"]) > 0:
-                service_environment_overrides["KAFKA_OPTS"] += " "
-            service_environment_overrides["KAFKA_OPTS"] = \
-                service_environment_overrides["KAFKA_OPTS"] + \
-                "-javaagent:/opt/jolokia/jolokia.jar=" + \
-                "config=/etc/kafka/jolokia.properties"
+            kafka_opts.append(
+                "-javaagent:/opt/jolokia/jolokia.jar="
+                "config=/etc/kafka/jolokia.properties")
         if self.is_jmxexporter_enabled():
-            if len(service_environment_overrides["KAFKA_OPTS"]) > 0:
-                service_environment_overrides["KAFKA_OPTS"] += " "
-            service_environment_overrides["KAFKA_OPTS"] = \
-                service_environment_overrides["KAFKA_OPTS"] + \
-                "-javaagent:/opt/prometheus/jmx_prometheus_javaagent.jar=" + \
-                "{}:/opt/prometheus/{}.yml" \
+            kafka_opts.append(
+                "-javaagent:/opt/prometheus/jmx_prometheus_javaagent.jar="
+                "{}:/opt/prometheus/{}.yml"
                 .format(self.config.get("jmx-exporter-port", 8079),
-                        jmx_file_name)
-        if len(service_environment_overrides.get("KAFKA_OPTS", "")) == 0:
+                        jmx_file_name))
+        if len(kafka_opts) == 0:
             # Assumed KAFKA_OPTS would be set at some point
             # however, it was not, so removing it
             service_environment_overrides.pop("KAFKA_OPTS", None)
+        else:
+            service_environment_overrides["KAFKA_OPTS"] = \
+                '{}'.format(" ".join(kafka_opts))
 
         # Even if service_overrides is not defined, User and Group need to be
         # correctly set if this option was passed to the charm.
@@ -402,12 +518,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
             dlower = d.lower()
             if dlower in self.config and \
                len(self.config.get(dlower, "")) > 0:
-                if self.config.get("distro", "confluent").lower() == \
-                   "confluent":
-                    service_overrides[d] = self.config.get(dlower)
-                elif self.config.get("distro", "confluent").lower() == \
-                        "apache":
-                    raise KafkaCharmBaseFeatureNotImplementedError()
+                service_overrides[d] = self.config.get(dlower)
         self.set_folders_and_permissions([os.path.dirname(target)])
         render(source="kafka_override.conf.j2",
                target=target,
@@ -419,3 +530,49 @@ class KafkaJavaCharmBase(JavaCharmBase):
                    "service_overrides": service_overrides or {},
                    "service_environment_overrides": service_environment_overrides or {} # noqa
                })
+
+    def _render_jaas_conf(self, jaas_path="/etc/kafka/jaas.conf"):
+        content = ""
+        if self.is_sasl_kerberos_enabled():
+            krb = """Server {{
+    com.sun.security.auth.module.Krb5LoginModule required
+    useKeyTab=true
+    keyTab="/etc/security/keytabs/{}"
+    storeKey=true
+    useTicketCache=false
+    principal="{}";
+}};
+""".format(self.keytab, self.kerberos_principal) # noqa
+            content += krb
+        self.set_folders_and_permissions([os.path.dirname(jaas_path)])
+        with open(jaas_path, "w") as f:
+            f.write(content)
+        setFilePermissions(jaas_path, self.config.get("user", "root"),
+                           self.config.get("group", "root"), 0o640)
+
+    def _render_krb5_conf(self):
+        enctypes = "aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96" + \
+            " arc-four-hmac rc4-hmac"
+        render(source="krb5.conf.j2",
+               target="/etc/krb5.conf",
+               owner=self.config.get("user", "root"),
+               group=self.config.get("group", "root"),
+               perms=0o640,
+               context={
+                   "realm": self.config["kerberos-realm"],
+                   "dns_lookup_realm": "false",
+                   "dns_lookup_kdc": "false",
+                   "ticket_lifetime": "24h",
+                   "forwardable": "true",
+                   "udp_preference_limit": "1",
+                   "default_tkt_enctypes": enctypes,
+                   "default_tgs_enctypes": enctypes,
+                   "permitted_enctypes": enctypes,
+                   "kdc_hostname": self.config["kerberos-kdc-hostname"],
+                   "admin_hostname": self.config["kerberos-admin-hostname"]
+               })
+
+    def _on_config_changed(self, event):
+        if self.is_sasl_kerberos_enabled():
+            self._render_krb5_conf()
+            self._render_jaas_conf()

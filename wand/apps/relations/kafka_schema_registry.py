@@ -56,11 +56,6 @@ class KafkaSchemaRegistryProvidesRelation(KafkaSchemaRegistryRelation):
     def set_schema_url(self, url, port, prot):
         if not self.relations:
             return
-        resource = None
-        if len(url) > 0:
-            resource = url
-        else:
-            resource = get_hostname(self.advertise_addr)
         # URL is set to config on schema registry, then the same value will
         # be passed by each of the schema registry instances. On the requester
         # side, the value collected is put on a set, which will end as one
