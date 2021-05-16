@@ -85,6 +85,28 @@ class ZookeeperProvidesRelation(ZookeeperRelation):
         self._hostname = hostname
         self._port = port
 
+    def enable_sasl_kerberos(self):
+        if not self.relations:
+            return
+        if not self.unit.is_leader():
+            return
+        for r in self.relations:
+            # Only change the value if it is not yet set
+            if r.data[self.model.app].get(
+               "sasl_kerberos_enabled", "false") != "true":
+                r.data[self.model.app]["sasl_kerberos_enabled"] = "true"
+
+    def disable_sasl_kerberos(self):
+        if not self.relations:
+            return
+        if not self.unit.is_leader():
+            return
+        for r in self.relations:
+            # Only change the value if it is not yet set
+            if r.data[self.model.app].get(
+               "sasl_kerberos_enabled", "false") != "false":
+                r.data[self.model.app]["sasl_kerberos_enabled"] = "false"
+
     def on_zookeeper_relation_joined(self, event):
         # Get unit's own hostname and pass that via relation
         r = event.relation
@@ -110,3 +132,11 @@ class ZookeeperRequiresRelation(ZookeeperRelation):
                  user="", group="", mode=0):
         super().__init__(charm, relation_name, hostname=hostname,
                          user=user, group=group, mode=mode)
+
+    def is_sasl_kerberos_enabled(self):
+        if not self.relations:
+            return False
+        for r in self.relations:
+            if r.data[r.app].get("sasl_kerberos_enabled", "false") == "true":
+                return True
+        return False

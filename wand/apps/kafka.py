@@ -549,30 +549,35 @@ class KafkaJavaCharmBase(JavaCharmBase):
             f.write(content)
         setFilePermissions(jaas_path, self.config.get("user", "root"),
                            self.config.get("group", "root"), 0o640)
+        return content
 
     def _render_krb5_conf(self):
         enctypes = "aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96" + \
             " arc-four-hmac rc4-hmac"
+        ctx = {
+                "realm": self.config["kerberos-realm"],
+                "dns_lookup_realm": "false",
+                "dns_lookup_kdc": "false",
+                "ticket_lifetime": "24h",
+                "forwardable": "true",
+                "udp_preference_limit": "1",
+                "default_tkt_enctypes": enctypes,
+                "default_tgs_enctypes": enctypes,
+                "permitted_enctypes": enctypes,
+                "kdc_hostname": self.config["kerberos-kdc-hostname"],
+                "admin_hostname": self.config["kerberos-admin-hostname"]
+            }
         render(source="krb5.conf.j2",
                target="/etc/krb5.conf",
                owner=self.config.get("user", "root"),
                group=self.config.get("group", "root"),
                perms=0o640,
-               context={
-                   "realm": self.config["kerberos-realm"],
-                   "dns_lookup_realm": "false",
-                   "dns_lookup_kdc": "false",
-                   "ticket_lifetime": "24h",
-                   "forwardable": "true",
-                   "udp_preference_limit": "1",
-                   "default_tkt_enctypes": enctypes,
-                   "default_tgs_enctypes": enctypes,
-                   "permitted_enctypes": enctypes,
-                   "kdc_hostname": self.config["kerberos-kdc-hostname"],
-                   "admin_hostname": self.config["kerberos-admin-hostname"]
-               })
+               context=ctx)
+        return ctx
 
     def _on_config_changed(self, event):
+        changed = {}
         if self.is_sasl_kerberos_enabled():
-            self._render_krb5_conf()
-            self._render_jaas_conf()
+            changed["krb5_conf"] = self._render_krb5_conf()
+            changed["jaas"] = self._render_jaas_conf()
+        return changed
