@@ -1,4 +1,125 @@
+"""
+
+Implements the Listener negotiation
+
+
+The Requirer side of the relation submits a request for a listener
+following a given pattern. That request is implemented by the provider side
+(kafka broker).
+
+The kafka broker side will read each of the requests and implement as a 
+different listener. It will also add metadata specific to the given listener
+e.g. passwords for trust and keystores. Check method: _get_default_listeners
+for an example.
+
+Eventually, these listeners are passed to a method that implements
+the configs back to the brokers.
+
+Separating the listeners into a negotiation protocol across the relations allows
+different listeners to be configured on the end-charm and the information
+is sent via relation to the listener to just implement it.
+
+
+Parameters of the request:
+
+endpoint and advertise)
+
+Each broker receives the request and implements it with its own IP/hostname
+information. Therefore, endpoints should be marked as *BINDING* or *ADVERTISE*
+Those strings will be replaced with the corresponding IP or hostname of the
+binding_address or advertise_address for the listener space.
+
+is_public)
+
+This attribute selects if the advertise or the binding IP will be used to 
+set this listener
+
+plaintext_pwd)
+
+Optional parameter that allows to set a password authentication using plaintext
+communications. If this is empty, then no password is set for authentication.
+
+secprot)
+
+One of the values is possible: PLAINTEXT, SSL, SASL, SASL_SSL.
+
+SASL)
+
+This subdictionary describes the authentication mechanisms available.
+If confluent is used, check:
+https://docs.confluent.io/platform/current/kafka/authentication_sasl/index.html
+It allows to exchange details of each authentication mechanism.
+SASL dict has some fields that should be implemented for any auth method:
+FOR NOW, only OAUTHBEARER and GSSAPI are enabled.
+
+SASL.protocol)
+
+Informs which SASL protocol will be used.
+
+cert) 
+
+Actual certificate chain to be used by the client in the mTLS authentication.
+FOR NOW, MTLS IS NOT AVAILABLE.
+
+
+
+Examples of requests:
+# 1) Request for a basic listener:
+Request a listener with no certificates (PLAINTEXT)
+
+{
+    "is_public": False,
+    "plaintext_pwd": "",
+    "secprot": "PLAINTEXT",
+    "SASL": {},
+    "cert": ""
+}
+
+# 2) Request for a listener with server-side SSL and exposed on the advertise_address:
+
+{
+    "is_public": True,
+    "plaintext_pwd": "",
+    "secprot": "SSL",
+    "SASL": {},
+    "cert": ""
+}
+
+# 3) Request SASL_SSL with GSSAPI:
+
+{
+    "is_public": True,
+    "plaintext_pwd": "",
+    "secprot": "SASL_SSL",
+    "SASL": {
+        "protocol": "GSSAPI",
+        "kerberos-principal": <principal-string>,
+        "kerberos-protocol": <protocol>
+    },
+    "cert": ""
+}
+
+# 4) Request for SASL_SSL with OAUTHBEARER on Confluent platform
+
+{
+    "is_public": True,
+    "plaintext_pwd": "",
+    "secprot": "SASL_SSL",
+    "SASL": {
+        "publicKeyPath": <file-path>,
+        "publicKey": base64-public-key,
+        "confluent": {
+            "login.callback": callback,
+            "server.callback": callback
+        }
+    },
+    "cert": ""
+}
+
+""" # noqa
+
 import json
+import copy
 import logging
 
 from wand.security.ssl import genRandomPassword
@@ -85,48 +206,92 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
         self.state.set_default(internal_pwd=genRandomPassword(12))
         self.state.set_default(external_pwd=genRandomPassword(12))
         self.state.set_default(broker_pwd=genRandomPassword(12))
+        self.listeners = {}
+
+    @property
+    def internal_pwd(self):
+        return self.state.internal_pwd
+
+    @internal_pwd.setter
+    def internal_pwd(self, p):
+        self.state.internal_pwd = p
+
+    @property
+    def external_pwd(self):
+        return self.state.external_pwd
+
+    @external_pwd.setter
+    def external_pwd(self, p):
+        self.state.external_pwd = p
+
+    @property
+    def broker_pwd(self):
+        return self.state.broker_pwd
+
+    @broker_pwd.setter
+    def broker_pwd(self, p):
+        self.state.broker_pwd = p
+
+    @property
+    def available_port(self):
+        return self.state.available_port
+
+    @available_port.setter
+    def available_port(self, p):
+        # We should expect the p value to be either a string
+        # or an int, therefore, force typecast
+        self.state.available_port = str(p)
 
     def _get_default_listeners(self, keystore_path, keystore_pwd, clientauth):
         listeners = {
             "internal": {
                 "endpoint": "INTERNAL://*BINDING*:{}".format(
-                    self.state.available_port),
+                    self.available_port),
                 "advertise": "INTERNAL://*BINDING*:{}".format(
-                    self.state.available_port),
-                "plaintext_pwd": self.state.internal_pwd,
+                    self.available_port),
+                "is_public": False,
+                "plaintext_pwd": self.internal_pwd,
                 "cert_present": True,
                 "sasl_present": False,
                 "secprot": "SSL",
-                "ts_path": self.state.ts_path,
-                "ts_pwd": self.state.ts_pwd,
+                "SASL": {},
+                "cert": "",
+                "ts_path": self.ts_path,
+                "ts_pwd": self.ts_pwd,
                 "ks_path": keystore_path,
                 "ks_pwd": keystore_pwd
             },
             "external": {
                 "endpoint": "EXTERNAL://*ADVERTISE*:{}".format(
-                    self.state.available_port + 1),
+                    self.available_port + 1),
                 "advertise": "EXTERNAL://*ADVERTISE*:{}".format(
-                    self.state.available_port + 1),
-                "plaintext_pwd": self.state.external_pwd,
+                    self.available_port + 1),
+                "is_public": True,
+                "plaintext_pwd": self.external_pwd,
                 "cert_present": True,
                 "sasl_present": False,
                 "secprot": "SSL",
-                "ts_path": self.state.ts_path,
-                "ts_pwd": self.state.ts_pwd,
+                "SASL": {},
+                "cert": "",
+                "ts_path": self.ts_path,
+                "ts_pwd": self.ts_pwd,
                 "ks_path": keystore_path,
                 "ks_pwd": keystore_pwd
             },
             "broker": {
                 "endpoint": "BROKER://*BINDING*:{}".format(
-                    self.state.available_port + 2),
+                    self.available_port + 2),
                 "advertise": "BROKER://*BINDING*:{}".format(
-                    self.state.available_port + 2),
-                "plaintext_pwd": self.state.broker_pwd,
+                    self.available_port + 2),
+                "is_public": False,
+                "plaintext_pwd": self.broker_pwd,
                 "cert_present": True,
                 "sasl_present": False,
                 "secprot": "SSL",
-                "ts_path": self.state.ts_path,
-                "ts_pwd": self.state.ts_pwd,
+                "SASL": {},
+                "cert": "",
+                "ts_path": self.ts_path,
+                "ts_pwd": self.ts_pwd,
                 "ks_path": keystore_path,
                 "ks_pwd": keystore_pwd
             }
@@ -143,24 +308,25 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                           keystore_pwd,
                           get_default=True,
                           clientauth=False):
-        self.state.available_port = self.port
+        self.available_port = self.port
         if not self.relations:
             raise KafkaListenerRelationNotSetError()
-        listeners = {}
-        if get_default:
-            listeners = self._get_default_listeners(
-                keystore_path, keystore_pwd, clientauth)
         if not self.unit.is_leader():
             return None
 
+        listeners = {}
         # Leader sets the value
         if get_default:
             listeners = self._get_default_listeners(
                 keystore_path, keystore_pwd, clientauth)
         # Consider the 3 ports to be used if default is enabled
-        self.state.available_port += 3
+        self.available_port += 3
         for r in self.relations:
             for u in r.units:
+                if not u.is_leader():
+                    # Process only the data corresponding to the
+                    # remote unit's leader
+                    continue
                 if "request" in r.data[u]:
                     inter = r.data[u]["request"]
                 else:
@@ -170,7 +336,7 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                     # for the case req = {}
                     continue
                 # Jump to the next port available
-                self.state.available_port += 1
+                self.available_port += 1
                 listener_name = u.app.name.replace("-", "_")
                 addr = None
                 if req.get("is_public", False):
@@ -179,37 +345,35 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                     addr = "*BINDING*"
                 lt = listener_name + \
                     "://" + addr + ":" + \
-                    str(self.state.available_port)
+                    str(self.available_port)
                 listeners[listener_name] = {}
                 listeners[listener_name]["bootstrap_server"] = \
                     addr + ":" + \
-                    str(self.state.available_port)
+                    str(self.available_port)
                 listeners[listener_name]["endpoint"] = lt
                 listeners[listener_name]["advertise"] = lt
-                cert_present = "cert" in req
-                sasl_present = "sasl" in req
-                if not cert_present and not sasl_present:
-                    listeners[listener_name]["secprot"] = "PLAINTEXT"
-                elif cert_present and not sasl_present:
-                    listeners[listener_name]["secprot"] = "SSL"
-                if not cert_present and sasl_present:
-                    listeners[listener_name]["secprot"] = "SASL"
-                elif cert_present and sasl_present:
-                    listeners[listener_name]["secprot"] = "SASL_SSL"
-                # TODO: dict to the SASL part, where the root is
-                # the type of SASL
-                listeners[listener_name]["SASL"] = {}
+                listeners[listener_name]["secprot"] = req["secprot"]
+                listeners[listener_name]["SASL"] = copy.deepcopy(req["SASL"])
                 listeners[listener_name]["plaintext_pwd"] = \
                     req["plaintext_pwd"]
-                listeners[listener_name]["cert_present"] = cert_present
-                listeners[listener_name]["sasl_present"] = sasl_present
-                listeners[listener_name]["ts_path"] = self.state.ts_path
-                listeners[listener_name]["ts_pwd"] = self.state.ts_pwd
+                listeners[listener_name]["cert_present"] = \
+                    len(req["cert"]) > 0
+                listeners[listener_name]["sasl_present"] = \
+                    "SASL" in req["secprot"]
+                listeners[listener_name]["ts_path"] = self.ts_path
+                listeners[listener_name]["ts_pwd"] = self.ts_pwd
                 listeners[listener_name]["ks_path"] = keystore_path
                 listeners[listener_name]["ks_pwd"] = keystore_pwd
                 listeners[listener_name]["clientauth"] = clientauth
         # update all the units
         return json.dumps(listeners)
+
+    def get_sasl_mechanisms_list(self):
+        result = set()
+        for k, v in self.listeners.items():
+            if "protocol" in v["SASL"]:
+                result.add(v["SASL"]["protocol"])
+        return result
 
     def _convert_listener_template(self, lst):
         if not lst or len(lst) == 0:
@@ -245,11 +409,38 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
         prefix = "listener.name."
         for k, v in listeners.items():
             if v["sasl_present"]:
-                # TODO: implement the logic below
-                listener_opts[prefix + k + ".gssapi.sasl.jaas.config"] = None
-                listener_opts[prefix + k + ".sasl.enabled.mechanisms"] = None
-                listener_opts[prefix +
-                              k + ".sasl.kerberos.service.name"] = None
+                listener_opts[prefix + k +
+                              ".sasl.enabled.mechanisms"] = \
+                    v["SASL"]["protocol"]
+                if v["SASL"]["protocol"] == "GSSAPI":
+                    listener_opts[prefix + k +
+                                  ".gssapi.sasl.jaas.config"] = \
+                        'com.sun.security.auth.module.Krb5LoginModule ' + \
+                        'required useKeyTab=true storeKey=true keyTab=' + \
+                        '"/etc/security/keytabs/kafka_broker.keytab" ' + \
+                        'principal="{}";'.format(
+                            v["SASL"]["kerberos-principal"])
+                    listener_opts[prefix + k +
+                                  ".sasl.kerberos.service.name"] = \
+                        v["SASL"]["kerberos-protocol"]
+                if v["SASL"]["protocol"] == "OAUTHBEARER":
+                    listener_opts[prefix + k +
+                                  ".sasl.jaas.config"] = \
+                        'org.apache.kafka.common.security.oauthbearer.' + \
+                        'OAuthBearerLoginModule required'
+                    listener_opts[prefix + k +
+                                  ".sasl.jaas.config"] += \
+                        ' publicKeyPath="{}";'.format(
+                             v["SASL"]["publicKeyPath"])
+                    if "confluent" in v["SASL"]:
+                        listener_opts[prefix + k +
+                                      ".oauthbearer.sasl.login.callback"
+                                      ".handler.class"] = \
+                            v["SASL"]["confluent"]["login.callback"]
+                        listener_opts[prefix + k +
+                                      ".oauthbearer.sasl.server.callback"
+                                      ".handler.class"] = \
+                            v["SASL"]["confluent"]["server.callback"]
             if v["cert_present"]:
                 listener_opts[prefix +
                               k + ".ssl.client.auth"] = \
@@ -260,11 +451,11 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                               k + ".ssl.keystore.location"] = keystore_path
                 listener_opts[prefix +
                               k + ".ssl.keystore.password"] = keystore_pwd
-                if len(self.state.ts_path) > 0:
+                if len(self.ts_path) > 0:
                     listener_opts[prefix + k + ".ssl.truststore.location"] = \
-                        self.state.ts_path
+                        self.ts_path
                     listener_opts[prefix + k + ".ssl.truststore.password"] = \
-                        self.state.ts_pwd
+                        self.ts_pwd
         return listener_opts
 
     def on_listener_relation_joined(self, event):
@@ -293,15 +484,15 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
             for k, v in listener.items():
                 data = {}
                 # Make a copy, so we can change its content
-                data[k] = dict(listener[k])
+                data[k] = copy.deepcopy(listener[k])
                 if "ts_pwd" in data[k]:
                     del data[k]["ts_pwd"]
                 if "ks_pwd" in data[k]:
                     del data[k]["ks_pwd"]
             logger.debug("Listeners: set_bootstrap_data={}".format(listener))
             j = json.dumps(listener)
-            if j != r.data[self.unit].get("bootstrap-server", ""):
-                r.data[self.unit]["bootstrap-server"] = j
+            if j != r.data[self.unit].get("bootstrap-data", ""):
+                r.data[self.unit]["bootstrap-data"] = j
 
 
 # Requirer is run on the charm clients connecting to kafka brokers
@@ -311,9 +502,16 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
                  user="", group="", mode=0):
         super().__init__(charm, relation_name, user, group, mode)
         self.state.set_default(is_public=False)
-        self.state.set_default(sasl="")
         self.state.set_default(request="{}")
         self.set_plaintext_pwd(genRandomPassword())
+
+    @property
+    def request(self):
+        return self.state.request
+
+    @request.setter
+    def request(self, r):
+        self.state.request = r
 
     def set_plaintext_pwd(self, pwd):
         req = json.loads(self.state.request) or {}
@@ -386,7 +584,7 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
         for r in self.relations:
             for u in r.units:
                 if "bootstrap-server" in r.data[u]:
-                    req = json.loads(r.data[u]["bootstrap-server"])
+                    req = json.loads(r.data[u]["bootstrap-data"])
                     try:
                         endpoint = \
                             req[lst_name]["bootstrap_server"]
@@ -404,13 +602,12 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
                      mode=None):
         req = json.loads(self.state.request) or {}
         req["cert"] = cert_chain
-        self.state.request = json.dumps(req)
-        self._set_request()
+        self.set_request(req)
         super().set_TLS_auth(cert_chain, truststore_path,
                              truststore_pwd, user, group, mode)
 
     def on_listener_relation_joined(self, event):
-        event.relation.data[self.unit]["request"] = self.state.request
+        self.set_request(self.request)
         self._get_all_tls_cert()
 
     def on_listener_relation_changed(self, event):

@@ -46,6 +46,22 @@ class KafkaRelationBase(Object):
         self.state.set_default(mode=mode)
 
     @property
+    def ts_path(self):
+        return self.state.ts_path
+
+    @ts_path.setter
+    def ts_path(self, t):
+        self.state.ts_path = t
+
+    @property
+    def ts_pwd(self):
+        return self.state.ts_pwd
+
+    @ts_pwd.setter
+    def ts_pwd(self, t):
+        self.state.ts_pwd = t
+
+    @property
     def charm(self):
         return self._charm
 
