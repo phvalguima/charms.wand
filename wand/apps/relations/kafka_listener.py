@@ -7,7 +7,7 @@ The Requirer side of the relation submits a request for a listener
 following a given pattern. That request is implemented by the provider side
 (kafka broker).
 
-The kafka broker side will read each of the requests and implement as a 
+The kafka broker side will read each of the requests and implement as a
 different listener. It will also add metadata specific to the given listener
 e.g. passwords for trust and keystores. Check method: _get_default_listeners
 for an example.
@@ -15,9 +15,9 @@ for an example.
 Eventually, these listeners are passed to a method that implements
 the configs back to the brokers.
 
-Separating the listeners into a negotiation protocol across the relations allows
-different listeners to be configured on the end-charm and the information
-is sent via relation to the listener to just implement it.
+Separating the listeners into a negotiation protocol across the relations
+allows different listeners to be configured on the end-charm and the
+information is sent via relation to the listener to just implement it.
 
 
 Parameters of the request:
@@ -31,7 +31,7 @@ binding_address or advertise_address for the listener space.
 
 is_public)
 
-This attribute selects if the advertise or the binding IP will be used to 
+This attribute selects if the advertise or the binding IP will be used to
 set this listener
 
 plaintext_pwd)
@@ -47,7 +47,8 @@ SASL)
 
 This subdictionary describes the authentication mechanisms available.
 If confluent is used, check:
-https://docs.confluent.io/platform/current/kafka/authentication_sasl/index.html
+https://docs.confluent.io/platform/current/kafka/ \
+    authentication_sasl/index.html
 It allows to exchange details of each authentication mechanism.
 SASL dict has some fields that should be implemented for any auth method:
 FOR NOW, only OAUTHBEARER and GSSAPI are enabled.
@@ -56,7 +57,7 @@ SASL.protocol)
 
 Informs which SASL protocol will be used.
 
-cert) 
+cert)
 
 Actual certificate chain to be used by the client in the mTLS authentication.
 FOR NOW, MTLS IS NOT AVAILABLE.
@@ -75,7 +76,8 @@ Request a listener with no certificates (PLAINTEXT)
     "cert": ""
 }
 
-# 2) Request for a listener with server-side SSL and exposed on the advertise_address:
+# 2) Request for a listener with server-side SSL and exposed on the
+advertise_address:
 
 {
     "is_public": True,
@@ -116,7 +118,7 @@ Request a listener with no certificates (PLAINTEXT)
     "cert": ""
 }
 
-""" # noqa
+"""
 
 import json
 import copy
@@ -234,7 +236,8 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
 
     @property
     def available_port(self):
-        return self.state.available_port
+        # Convert it to int
+        return int(self.state.available_port)
 
     @available_port.setter
     def available_port(self, p):
@@ -309,10 +312,14 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                           get_default=True,
                           clientauth=False):
         self.available_port = self.port
-        if not self.relations:
-            raise KafkaListenerRelationNotSetError()
         if not self.unit.is_leader():
-            return None
+            return {}
+        if not self.relations:
+            # No relations available, return just the defaults
+            # if defaults are True, otherwise return empty {}
+            return self._get_default_listeners(
+                keystore_path, keystore_pwd, clientauth) \
+                    if get_default else {}
 
         listeners = {}
         # Leader sets the value
@@ -478,6 +485,7 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
         if not lst or len(lst) == 0:
             raise KafkaListenerRelationEmptyListenerDictError()
         if not self.relations:
+            # We may work with defaults only and no charm related to it
             return
         for r in self.relations:
             listener = self._convert_listener_template(lst)
