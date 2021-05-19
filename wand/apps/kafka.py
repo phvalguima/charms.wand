@@ -137,6 +137,9 @@ class KafkaJavaCharmBase(JavaCharmBase):
         self._kerberos_principal = None
         self.ks.set_default(keytab="")
         self._sasl_protocol = None
+        # Save the internal content of keytab file from the action.
+        # use it as part of the context in the config_changed
+        self.keytab_b64 = ""
 
     def on_update_status(self, event):
         if not service_running(self.service) and \
@@ -192,6 +195,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
         with open(filepath, "wb") as f:
             f.write(base64.b64decode(k))
             f.close()
+        self.keytab_b64 = str(k)
         setFilePermissions(filepath, self.config.get("user", "root"),
                            self.config.get("group", "root"), 0o640)
         self.keytab = filename

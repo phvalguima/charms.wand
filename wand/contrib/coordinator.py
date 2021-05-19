@@ -46,8 +46,25 @@ How to implement it:
             # Always gate the emitter of RestartEvent since it will trigger
             # a wave of peer relation changes for lock negotiation.
             # Context can be the configs to be pushed to the config files.
-            if _check_if_ready(context):
-                self.on.restart_event.emit(services=[svc to restart])
+            if _check_if_ready(ctx):
+                self.on.restart_event.emit(ctx, services=[svc to restart])
+            else:
+                # Restart logic has been ran and handle() has been called.
+                # There is nothing more to do regarding the locks
+                # However, if _check_if_ready is false, then the leader
+                # still needs to maange the locks
+                coordinator = OpsCoordinator()
+                coordinator.handle_locks(self.unit)
+        ...
+
+        def on_update_status(self, event):
+            ...
+            # Config Changed is always ran after each -relation hook, but
+            # not after the actual update_status. Here we ensure that
+            # handle_locks is always called.
+            coordinator = OpsCoordinator()
+            coordinator.handle_locks(self.unit)
+            ...
 
 """
 
@@ -156,6 +173,17 @@ class OpsCoordinator(Serial):
     def __init__(self):
         """Calls the super().__init__()"""
         super().__init__()
+
+    def handle_locks(self, unit):
+        """
+        Check if the unit is the leader. If so, it must run the handle()
+        at least once in the hooks so the locks can be correctly managed.
+        """
+        if not unit.is_leader():
+            # Only the leader handles the locks
+            return
+        self.resume()
+        self.release()
 
     def resume(self):
         """
