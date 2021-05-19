@@ -236,7 +236,6 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
 
     @property
     def available_port(self):
-        # Convert it to int
         return int(self.state.available_port)
 
     @available_port.setter
@@ -317,9 +316,9 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
         if not self.relations:
             # No relations available, return just the defaults
             # if defaults are True, otherwise return empty {}
-            return self._get_default_listeners(
+            return json.dumps(self._get_default_listeners(
                 keystore_path, keystore_pwd, clientauth) \
-                    if get_default else {}
+                    if get_default else {})
 
         listeners = {}
         # Leader sets the value

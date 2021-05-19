@@ -86,6 +86,17 @@ __all__ = [
 ]
 
 
+class KafkaCharmBaseMissingRelationError(Exception):
+
+    def __init__(self, relation):
+        super().__init__("Missing relation {}".format(relation))
+        self._relation = relation
+
+    @property
+    def relation(self):
+        return self._relation
+
+
 class KafkaCharmBaseConfigNotAcceptedError(Exception):
 
     def __init__(self, message):
