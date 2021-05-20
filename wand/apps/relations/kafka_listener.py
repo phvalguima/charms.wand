@@ -317,7 +317,7 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
             # No relations available, return just the defaults
             # if defaults are True, otherwise return empty {}
             return json.dumps(self._get_default_listeners(
-                keystore_path, keystore_pwd, clientauth) \
+                keystore_path, keystore_pwd, clientauth)
                     if get_default else {})
 
         listeners = {}

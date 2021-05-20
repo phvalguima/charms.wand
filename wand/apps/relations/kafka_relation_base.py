@@ -138,9 +138,10 @@ class KafkaRelationBase(Object):
             # given it will use non-encrypted communication instead
             return
         crt_list = list(ext_list)
-        for u in self.all_units(self.relation):
-            if "tls_cert" in self.relation.data[u]:
-                crt_list.append(self.relation.data[u]["tls_cert"])
+        for r in self.relations:
+            for u in self.all_units(r):
+                if "tls_cert" in r.data[u]:
+                    crt_list.append(r.data[u]["tls_cert"])
         self.state.trusted_certs = "::".join(crt_list)
         CreateTruststore(self.state.ts_path,
                          self.state.ts_pwd,
