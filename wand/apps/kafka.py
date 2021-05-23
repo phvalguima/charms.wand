@@ -308,6 +308,8 @@ class KafkaJavaCharmBase(JavaCharmBase):
                               "relation set, waiting...")
             logger.warning("There is no certificate option or "
                            "relation set, waiting...")
+            # We need to defer this event as several different events use
+            # this method (relation-joined, -changed, config-changed, etc)
             if event:
                 event.defer()
             return False
@@ -349,6 +351,10 @@ class KafkaJavaCharmBase(JavaCharmBase):
         return False
 
     def is_sasl_ldap_enabled(self):
+        if len(self.config.get("mds_user", "")) > 0 and \
+           len(self.config.get("mds_password", "")) > 0 and \
+           self.distro == "confluent":
+            return True
         return False
 
     def is_sasl_kerberos_enabled(self):

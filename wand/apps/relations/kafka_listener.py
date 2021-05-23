@@ -108,6 +108,7 @@ advertise_address:
     "plaintext_pwd": "",
     "secprot": "SASL_SSL",
     "SASL": {
+        "protocol": "oauthbearer"
         "publicKeyPath": <file-path>,
         "publicKey": base64-public-key,
         "confluent": {
@@ -365,7 +366,7 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                 listeners[listener_name]["cert_present"] = \
                     len(req["cert"]) > 0
                 listeners[listener_name]["sasl_present"] = \
-                    "SASL" in req["secprot"]
+                    "SASL" in req
                 listeners[listener_name]["ts_path"] = self.ts_path
                 listeners[listener_name]["ts_pwd"] = self.ts_pwd
                 listeners[listener_name]["ks_path"] = keystore_path

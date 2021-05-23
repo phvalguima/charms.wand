@@ -41,7 +41,6 @@ __all__ = [
     "KafkaMDSProvidesRelation",
     "KafkaMDSRequiresRelation",
     "KafkaSchemaRegistryMDSRequiresRelation",
-    "KafkaBrokerMDSRequiresRelation",
     "KafkaConnectMDSRequiresRelation",
     "KafkaMDSRelationConfigIncorrectError",
     "KafkaMDSRelationRBACNotSetError",
@@ -155,6 +154,20 @@ class KafkaMDSRelation(KafkaRelationBase):
                     if "rbac" not in r.data[self.unit]:
                         raise KafkaMDSRelationRBACNotSetError(r)
 
+    def get_bootstrap_servers(self):
+        urls = []
+        for r in self.relations:
+            for u in r.units:
+                if "mds_url" in r.data[u]:
+                    urls.append(r.data[u]["mds_url"])
+        return ",".join(urls)
+
+    def get_public_key(self):
+        for r in self.relations:
+            # Key is set on the other app's relation
+            if "public-key" in r.data[r.app]:
+                return r.data[r.app]["public-key"]
+
 
 class KafkaMDSProvidesRelation(KafkaMDSRelation):
 
@@ -200,11 +213,9 @@ class KafkaMDSProvidesRelation(KafkaMDSRelation):
     @mds_url.setter
     def mds_url(self, u):
         self.state.mds_url = u
-        if not self.unit.is_leader():
-            return
         for r in self.relations:
-            if u != r.get(self.model.app, ""):
-                r.data[self.model.app]["mds_url"] = u
+            if u != r.data[self.unit].get("mds_url", ""):
+                r.data[self.unit]["mds_url"] = u
 
     def on_mds_relation_joined(self, event):
         if not self.unit.is_leader():
@@ -227,6 +238,11 @@ class KafkaMDSProvidesRelation(KafkaMDSRelation):
             raise KafkaMDSRelationConfigIncorrectError(
                 "mds_super_user_password")
 
+    def set_public_key(self, k):
+        for r in self.relations:
+            if k != r.data[r.app].get("public-key", ""):
+                r.data[r.app]["public-key"] = k
+
 
 class KafkaMDSRequiresRelation(KafkaMDSRelation):
     """
@@ -236,13 +252,13 @@ class KafkaMDSRequiresRelation(KafkaMDSRelation):
     RBAC requests. This class will be responsible for generating the RBAC POST
     request to the MDS server.
 
-    The actual method that renders the RBAC POST requests is an abstract method
-    named "render_rbac_request". That should be reimplemented for each of the
-    component's requirer class.
+    The actual method that renders the RBAC POST requests is an abstract
+    method named "render_rbac_request". That should be reimplemented for
+    each of the component's requirer class.
 
     Parameters:
-    req_params: a list of jsons which will be used
-                to negotiate RBAC with MDS server
+        req_params: a list of jsons which will be used
+                    to negotiate RBAC with MDS server
     """
 
     def __init__(self, charm, relation_name,
@@ -256,6 +272,41 @@ class KafkaMDSRequiresRelation(KafkaMDSRelation):
 
     def render_rbac_request(self, params):
         pass
+
+    def generate_configs(self, mds_user, mds_password):
+        """
+        Returns a dict with the config options given the user and password.
+
+        Configs:
+        - public.key.path: set by MDS provider and used to encrypt tokens
+        - confluent.metadata.bootstrap.server.urls: metadata servers'
+            addresses or URLs
+
+        If LDAP is set for this application, then also use its user/pwd:
+        - confluent.metadata.basic.auth.user.info: <username>:<pwd>
+        - confluent.metadata.http.auth.credentials.provider: BASIC
+
+        Parameters:
+            mds_user: username for LDAP
+            mds_password: password for LDAP
+        Returns:
+            Dict with the options or None if nothing is yet configured
+        """
+        if not self.mds.relations:
+            return
+        props = {}
+        k = self.get_public_key()
+        props["confluent.metadata.bootstrap.server.urls"] = \
+            self.get_bootstrap_servers()
+        if len(k) > 0:
+            props["public.key.path"] = k
+        if len(mds_user) > 0 and \
+           len(mds_password) > 0:
+            props["confluent.metadata.basic.auth.user.info"] = \
+                "{}:{}".format(mds_user, mds_password)
+            props["confluent.metadata.http."
+                  "auth.credentials.provider"] = "BASIC"
+        return props if len(props) > 0 else None
 
     @property
     def mds_url(self):
@@ -302,6 +353,11 @@ class KafkaMDSRequiresRelation(KafkaMDSRelation):
         j = json.loads(self.state.req_params)
         j["kafka-cluster-id"] = self._get_cluster_id_via_mds()
         return j
+
+    def get_public_key(self):
+        for r in self.relations:
+            if "public-key" in r.data[self.model.app]:
+                return r.data[self.model.app]["public-key"]
 
     @req_params.setter
     def req_params(self, p):
@@ -396,28 +452,6 @@ class KafkaMDSRequiresRelationMissingJsonRequestParamError(Exception):
         super().__init__("Missing parameter for"
                          " HTTP request to the"
                          " Metadata service: {}".format(param))
-
-
-class KafkaBrokerMDSRequiresRelation(KafkaMDSRequiresRelation):
-    """
-    This class implements the Requirer side for MDS on Kafka Broker
-    The broker has no permissions needed
-
-    """
-
-    def __init__(self, charm, relation_name,
-                 user="", group="", mode=0,
-                 hostname=None, port=8090, protocol="https",
-                 rbac_enabled=False):
-        super().__init__(charm, relation_name, user, group, mode,
-                         hostname, port, protocol, rbac_enabled)
-
-    def render_rbac_request(self, params):
-        """
-        Renders the RBAC requests for Kafka Broker component.
-        The only RBAC-related task is to register brokers with MDS service.
-        """
-        return []
 
 
 class KafkaSchemaRegistryMDSRequiresRelation(KafkaMDSRequiresRelation):
