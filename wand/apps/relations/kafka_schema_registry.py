@@ -108,3 +108,21 @@ class KafkaSchemaRegistryRequiresRelation(KafkaSchemaRegistryRelation):
             if param in self.relation.data[u]:
                 return self.relation.data[u][param]
         return None
+
+    def generate_configs(self,
+                         ts_path,
+                         ts_pwd,
+                         enable_ssl,
+                         ks_path,
+                         ks_pwd):
+        if not self.sr.relations:
+            return None
+        sr_props = {}
+        if len(ts_path) > 0:
+            sr_props["schema.registry.ssl.truststore.location"] = ts_path
+            sr_props["schema.registry.ssl.truststore.password"] = ts_pwd
+        if enable_ssl:
+            sr_props["schema.registry.ssl.key.password"] = ks_pwd
+            sr_props["schema.registry.ssl.keystore.location"] = ks_path
+            sr_props["schema.registry.ssl.keystore.password"] = ks_pwd
+        sr_props["schema.registry.url"] = self.url

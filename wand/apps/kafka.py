@@ -151,14 +151,32 @@ class KafkaJavaCharmBase(JavaCharmBase):
         # Save the internal content of keytab file from the action.
         # use it as part of the context in the config_changed
         self.keytab_b64 = ""
+        self.services = None
 
     def on_update_status(self, event):
-        if not service_running(self.service) and \
-           not isinstance(self.model.unit.status, ActiveStatus):
+        """ This method will update the status of the charm according
+            to the app's status"""
+        if isinstance(self.model.unit.status, BlockedStatus):
+            # Log the fact the unit is already blocked and return
+            logger.warn(
+                "update-status called but unit is in blocked "
+                "status, with message {}, return".format(
+                    self.model.unit.status.message))
             return
-        if not service_running(self.service):
+        if isinstance(self.model.unit.status, MaintenanceStatus):
+            # Log the fact the unit is already blocked and return
+            logger.warn(
+                "update-status called but unit is in maintenance "
+                "status, with message {}, return".format(
+                    self.model.unit.status.message))
+            return
+        if not self.services:
+            self.services = [self.service]
+        svc_list = [s for s in self.services if not service_running(s)]
+        if len(svc_list) > 0:
             self.model.unit.status = \
-                BlockedStatus("{} not running".format(self.service))
+                BlockedStatus("Services not running that"
+                              " should be: {}".format(",".join(svc_list)))
             return
         self.model.unit.status = \
             ActiveStatus("{} is running".format(self.service))
