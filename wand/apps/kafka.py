@@ -341,6 +341,8 @@ class KafkaJavaCharmBase(JavaCharmBase):
         s = self.sasl_protocol
         if s == "oauthbearer":
             return self.is_sasl_oauthbearer_enabled()
+        if s == "ldap":
+            return self.is_sasl_ldap_enabled()
         if s == "scram":
             return self.is_sasl_scram_enabled()
         if s == "plain":

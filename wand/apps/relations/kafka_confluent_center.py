@@ -12,7 +12,30 @@
 
 
 """
-Implements the kafka Confluent Control Center relation.
+Implements the Confluent Control Center relation.
+
+This relation passes on the listener configuration for the interceptor
+logic implemented on confluent stack.
+
+The provider side needs to supply the listener endpoint to be used.
+That differs from traditional listeners given that the same listener
+will be used by all the requirers.
+
+The provider side should call:
+    self.c3 = KafkaC3ProvidesRelation(...)
+    self.c3.url = "<hostname>:<listener-port>"
+    ...
+
+This relation and listeners should never be on different spaces.
+
+The requirer side will have access to the listener bootstrap urls
+and should check which SASL mechanism was added.
+
+The requirer side should use the same truststore and keystore as
+the ones to be used in the listener relation.
+
+TODO: the SASL mechanism is hard-coded to be OAUTHBEARER using
+LDAP credentials. That has been hardcoded on the Requirer side.
 """
 
 
@@ -43,15 +66,15 @@ class KafkaC3Relation(KafkaRelationBase):
         if not self.relations:
             return None
         for r in self.relations:
-            if "url" in r.data[self.model.app]:
-                return r.data[self.model.app]["url"]
+            if "bootstrap-server" in r.data[self.unit]:
+                return r.data[self.unit]["bootstrap-server"]
 
     @url.setter
     def url(self, u):
         if not self.relations:
             return
         for r in self.relations:
-            r.data[self.model.app]["url"] = u
+            r.data[self.unit]["bootstrap-server"] = u
 
 
 class KafkaC3ProvidesRelation(KafkaC3Relation):
@@ -61,6 +84,7 @@ class KafkaC3ProvidesRelation(KafkaC3Relation):
                  hostname=None, port=8082, protocol="https",
                  rbac_enabled=False):
         super().__init__(charm, relation_name, user, group, mode)
+        self.state.set_default(listener="{}")
 
 
 class KafkaC3RequiresRelation(KafkaC3Relation):
@@ -71,18 +95,28 @@ class KafkaC3RequiresRelation(KafkaC3Relation):
                  rbac_enabled=False):
         super().__init__(charm, relation_name, user, group, mode)
 
-    def generate_config(self,
-                        mds_bootstrap_servers,
-                        ts_path,
-                        ts_pwd,
-                        oauthbearer_settings,
-                        client_security_protocol,
-                        sasl_oauthbearer_enabled=False):
-        if not self.c3.relations:
+    def get_bootstrap_servers(self):
+        if not self.relations:
+            return
+        servers = []
+        for r in self.relations:
+            for u in r.units:
+                if "bootstrap-server" in r.data[u]:
+                    servers.append(r.data[u]["bootstrap-server"])
+        return ",".join(servers)
+
+    def generate_configs(self,
+                         ts_path,
+                         ts_pwd,
+                         oauthbearer_settings,
+                         client_security_protocol,
+                         sasl_oauthbearer_enabled=False):
+        if not self.relations:
             return
         props = {}
         props["confluent.monitoring"
-              ".interceptor.bootstrap.servers"] = mds_bootstrap_servers
+              ".interceptor.bootstrap.servers"] = \
+            self.get_bootstrap_servers()
         props["confluent.monitoring.interceptor.topic"] = \
             "_confluent-monitoring"
         props["consumer.interceptor.classes"] = \
@@ -100,7 +134,7 @@ class KafkaC3RequiresRelation(KafkaC3Relation):
             props["client.confluent.monitoring."
                   "interceptor.sasl.jaas.config"] = oauthbearer_settings
             props["client.confluent.monitoring"
-                  ".interceptor.sasl.mechanism=OAUTHBEARER"] = \
+                  ".interceptor.sasl.mechanism"] = \
                 "OAUTHBEARER"
             props["client.confluent.monitoring"
                   ".interceptor.security.protocol"] = \
@@ -109,3 +143,4 @@ class KafkaC3RequiresRelation(KafkaC3Relation):
                   ".sasl.login.callback.handler.class"] = \
                 "io.confluent.kafka.clients.plugins.auth.token." + \
                 "TokenUserLoginCallbackHandler"
+        return props if len(props) > 0 else None

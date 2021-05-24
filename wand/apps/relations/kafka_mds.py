@@ -162,11 +162,16 @@ class KafkaMDSRelation(KafkaRelationBase):
                     urls.append(r.data[u]["mds_url"])
         return ",".join(urls)
 
-    def get_public_key(self):
+    def get_public_key(self, keypath):
+        key = ""
         for r in self.relations:
             # Key is set on the other app's relation
             if "public-key" in r.data[r.app]:
-                return r.data[r.app]["public-key"]
+                key = r.data[r.app]["public-key"]
+                break
+        with open(keypath, "w") as f:
+            f.write(key)
+            f.close()
 
 
 class KafkaMDSProvidesRelation(KafkaMDSRelation):
@@ -273,7 +278,7 @@ class KafkaMDSRequiresRelation(KafkaMDSRelation):
     def render_rbac_request(self, params):
         pass
 
-    def generate_configs(self, mds_user, mds_password):
+    def generate_configs(self, mds_keypath, mds_user, mds_password):
         """
         Returns a dict with the config options given the user and password.
 
@@ -287,19 +292,20 @@ class KafkaMDSRequiresRelation(KafkaMDSRelation):
         - confluent.metadata.http.auth.credentials.provider: BASIC
 
         Parameters:
+            mds_keypat: public for MDS will be stored in this file
             mds_user: username for LDAP
             mds_password: password for LDAP
         Returns:
             Dict with the options or None if nothing is yet configured
         """
-        if not self.mds.relations:
+        if not self.relations:
             return
         props = {}
-        k = self.get_public_key()
         props["confluent.metadata.bootstrap.server.urls"] = \
             self.get_bootstrap_servers()
-        if len(k) > 0:
-            props["public.key.path"] = k
+        if len(mds_keypath) > 0:
+            self.get_public_key(mds_keypath)
+            props["public.key.path"] = mds_keypath
         if len(mds_user) > 0 and \
            len(mds_password) > 0:
             props["confluent.metadata.basic.auth.user.info"] = \

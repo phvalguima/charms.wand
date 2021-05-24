@@ -591,14 +591,13 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
         lst_name = self.unit.app.name.replace("-", "_")
         for r in self.relations:
             for u in r.units:
-                if "bootstrap-server" in r.data[u]:
+                try:
                     req = json.loads(r.data[u]["bootstrap-data"])
-                    try:
-                        endpoint = \
-                            req[lst_name]["bootstrap_server"]
-                    except KeyError:
-                        raise KafkaListenerRelationNotSetError()
-                    servers.append(endpoint)
+                    endpoint = \
+                        req[lst_name]["bootstrap_server"]
+                except KeyError:
+                    raise KafkaListenerRelationNotSetError()
+                servers.append(endpoint)
         return ",".join(servers)
 
     def set_TLS_auth(self,

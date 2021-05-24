@@ -56,12 +56,14 @@ class KafkaSchemaRegistryProvidesRelation(KafkaSchemaRegistryRelation):
     def set_schema_url(self, url, port, prot):
         if not self.relations:
             return
+        if not self.unit.is_leader():
+            return
         # URL is set to config on schema registry, then the same value will
         # be passed by each of the schema registry instances. On the requester
         # side, the value collected is put on a set, which will end as one
         # single URL.
         for r in self.relations:
-            r.data[self.unit]["url"] = \
+            r.data[self.model.app]["url"] = \
                 "{}://{}:{}".format(
                     prot if len(prot) > 0 else "https",
                     url if len(url) > 0 else get_hostname(
@@ -96,10 +98,8 @@ class KafkaSchemaRegistryRequiresRelation(KafkaSchemaRegistryRelation):
         # is set instead of get_hostname of each advertise_addr
         res = set()
         for r in self.relations:
-            for u in r.units:
-                if "url" in r.data[u]:
-                    res.add(r.data[u]["url"])
-        return ",".join(res)
+            if "url" in r.data[r.app]:
+                return r.data[r.app]["url"]
 
     def get_param(self, param):
         if not self.relation:
@@ -115,7 +115,7 @@ class KafkaSchemaRegistryRequiresRelation(KafkaSchemaRegistryRelation):
                          enable_ssl,
                          ks_path,
                          ks_pwd):
-        if not self.sr.relations:
+        if not self.relations:
             return None
         sr_props = {}
         if len(ts_path) > 0:
@@ -126,3 +126,4 @@ class KafkaSchemaRegistryRequiresRelation(KafkaSchemaRegistryRelation):
             sr_props["schema.registry.ssl.keystore.location"] = ks_path
             sr_props["schema.registry.ssl.keystore.password"] = ks_pwd
         sr_props["schema.registry.url"] = self.url
+        return sr_props if len(sr_props) > 0 else None
