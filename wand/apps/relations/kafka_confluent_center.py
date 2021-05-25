@@ -110,36 +110,37 @@ class KafkaC3RequiresRelation(KafkaC3Relation):
                          ts_pwd,
                          oauthbearer_settings,
                          client_security_protocol,
-                         sasl_oauthbearer_enabled=False):
+                         sasl_oauthbearer_enabled=False,
+                         prefix=""):
         if not self.relations:
             return
         props = {}
-        props["confluent.monitoring"
+        props[prefix + "confluent.monitoring"
               ".interceptor.bootstrap.servers"] = \
             self.get_bootstrap_servers()
-        props["confluent.monitoring.interceptor.topic"] = \
+        props[prefix + "confluent.monitoring.interceptor.topic"] = \
             "_confluent-monitoring"
-        props["consumer.interceptor.classes"] = \
+        props[prefix + "consumer.interceptor.classes"] = \
             "io.confluent.monitoring.clients.interceptor" + \
             ".MonitoringConsumerInterceptor"
-        props["producer.interceptor.classes"] = \
+        props[prefix + "producer.interceptor.classes"] = \
             "io.confluent.monitoring.clients" + \
             ".interceptor.MonitoringProducerInterceptor"
         if len(ts_path) > 0:
-            props["client.confluent.monitoring"
+            props[prefix + "client.confluent.monitoring"
                   ".interceptor.ssl.truststore.location"] = ts_path
-            props["client.confluent.monitoring"
+            props[prefix + "client.confluent.monitoring"
                   ".interceptor.ssl.truststore.password"] = ts_pwd
         if sasl_oauthbearer_enabled:
-            props["client.confluent.monitoring."
+            props[prefix + "client.confluent.monitoring."
                   "interceptor.sasl.jaas.config"] = oauthbearer_settings
-            props["client.confluent.monitoring"
+            props[prefix + "client.confluent.monitoring"
                   ".interceptor.sasl.mechanism"] = \
                 "OAUTHBEARER"
-            props["client.confluent.monitoring"
+            props[prefix + "client.confluent.monitoring"
                   ".interceptor.security.protocol"] = \
                 client_security_protocol
-            props["client.confluent.monitoring.interceptor"
+            props[prefix + "client.confluent.monitoring.interceptor"
                   ".sasl.login.callback.handler.class"] = \
                 "io.confluent.kafka.clients.plugins.auth.token." + \
                 "TokenUserLoginCallbackHandler"

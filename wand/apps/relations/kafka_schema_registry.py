@@ -96,7 +96,6 @@ class KafkaSchemaRegistryRequiresRelation(KafkaSchemaRegistryRelation):
             return
         # Set is used to avoid repetitive URLs if schema_url config
         # is set instead of get_hostname of each advertise_addr
-        res = set()
         for r in self.relations:
             if "url" in r.data[r.app]:
                 return r.data[r.app]["url"]
