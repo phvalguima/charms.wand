@@ -50,7 +50,8 @@ class KafkaKsqlRelation(KafkaRelationBase):
         if not self.relations:
             return
         for r in self.relations:
-            r.data[self.model.app]["url"] = u
+            if r.data[r.app].get("url", "") != u:
+                r.data[self.model.app]["url"] = u
 
 
 class KafkaKsqlProvidesRelation(KafkaKsqlRelation):
@@ -69,3 +70,31 @@ class KafkaKsqlRequiresRelation(KafkaKsqlRelation):
                  hostname=None, port=8082, protocol="https",
                  rbac_enabled=False):
         super().__init__(charm, relation_name, user, group, mode)
+
+    @property
+    def url(self):
+        if not self.relations:
+            return
+        for r in self.relations:
+            if len(r.data[r.app].get("url", "")) > 0:
+                return r.data[r.app]["url"]
+
+    def generate_configs(self,
+                         ts_path,
+                         ts_pwd,
+                         enable_keystore,
+                         ks_path,
+                         ks_pwd,
+                         prefix=""):
+        if not self.relations:
+            return
+        props = {}
+        props[prefix + "advertised.url"] = self.url
+        if len(ts_path) > 0:
+            props[prefix + "ssl.truststore.location"] = ts_path
+            props[prefix + "ssl.truststore.password"] = ts_pwd
+        if len(ts_path) > 0 and enable_keystore:
+            props[prefix + "ssl.key.password"] = ks_pwd
+            props[prefix + "ssl.keystore.password"] = ks_pwd
+            props[prefix + "ssl.keystore.location"] = ks_path
+        return props if len(props) > 0 else None

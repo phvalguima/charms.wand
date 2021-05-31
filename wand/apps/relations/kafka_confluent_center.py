@@ -23,8 +23,12 @@ will be used by all the requirers.
 
 The provider side should call:
     self.c3 = KafkaC3ProvidesRelation(...)
-    self.c3.url = "<hostname>:<listener-port>"
+    self.c3.url = "<protocol>://<hostname>:<listener-port>"
+    self.c3.bootstrap-servers = comma-separated list of URLs
     ...
+
+C3 Provider will use its own listener relation to request a listener
+with OAUTHBEARER and share its bootstrap info with other charms.
 
 This relation and listeners should never be on different spaces.
 
@@ -66,15 +70,34 @@ class KafkaC3Relation(KafkaRelationBase):
         if not self.relations:
             return None
         for r in self.relations:
-            if "bootstrap-server" in r.data[self.unit]:
-                return r.data[self.unit]["bootstrap-server"]
+            if "url" in r.data[self.unit]:
+                return r.data[self.unit]["url"]
+        return None
 
     @url.setter
     def url(self, u):
         if not self.relations:
             return
         for r in self.relations:
-            r.data[self.unit]["bootstrap-server"] = u
+            if r.data[self.unit].get("url", "") != u:
+                r.data[self.unit]["url"] = u
+
+    @property
+    def bootstrap_servers(self):
+        if not self.relations:
+            return None
+        for r in self.relations:
+            if "bootstrap-server" in r.data[self.unit]:
+                return r.data[self.unit]["bootstrap-server"]
+        return None
+
+    @bootstrap_servers.setter
+    def bootstrap_servers(self, u):
+        if not self.relations:
+            return
+        for r in self.relations:
+            if r.data[self.unit].get("bootstrap-server", "") != u:
+                r.data[self.unit]["bootstrap-server"] = u
 
 
 class KafkaC3ProvidesRelation(KafkaC3Relation):
