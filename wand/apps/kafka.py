@@ -50,6 +50,9 @@ from wand.apps.relations.tls_certificates import (
     TLSCertificateDataNotFoundInRelationError,
     TLSCertificateRelationNotPresentError
 )
+from wand.contrib.linux import (
+    get_hostname
+)
 
 logger = logging.getLogger(__name__)
 
@@ -156,13 +159,6 @@ class KafkaJavaCharmBase(JavaCharmBase):
     def on_update_status(self, event):
         """ This method will update the status of the charm according
             to the app's status"""
-        if isinstance(self.model.unit.status, BlockedStatus):
-            # Log the fact the unit is already blocked and return
-            logger.warn(
-                "update-status called but unit is in blocked "
-                "status, with message {}, return".format(
-                    self.model.unit.status.message))
-            return
         if isinstance(self.model.unit.status, MaintenanceStatus):
             # Log the fact the unit is already blocked and return
             logger.warn(
@@ -173,13 +169,22 @@ class KafkaJavaCharmBase(JavaCharmBase):
         if not self.services:
             self.services = [self.service]
         svc_list = [s for s in self.services if not service_running(s)]
-        if len(svc_list) > 0:
+        if len(svc_list) == 0:
             self.model.unit.status = \
-                BlockedStatus("Services not running that"
-                              " should be: {}".format(",".join(svc_list)))
+                ActiveStatus("{} is running".format(self.service))
+            # The status is not in Maintenance and we can see the service
+            # is up, therefore we can switch to Active.
+            return
+        if isinstance(self.model.unit.status, BlockedStatus):
+            # Log the fact the unit is already blocked and return
+            logger.warn(
+                "update-status called but unit is in blocked "
+                "status, with message {}, return".format(
+                    self.model.unit.status.message))
             return
         self.model.unit.status = \
-            ActiveStatus("{} is running".format(self.service))
+            BlockedStatus("Services not running that"
+                          " should be: {}".format(",".join(svc_list)))
 
     @property
     def kerberos_principal(self):
@@ -250,6 +255,17 @@ class KafkaJavaCharmBase(JavaCharmBase):
         folders = ["/etc/kafka", "/var/log/kafka", "/var/lib/kafka"]
         self.set_folders_and_permissions(folders)
 
+    def _get_api_url(self, advertise_addr):
+        """Returns the API endpoint for a given service. If the config
+        is not manually set, then the advertise_addr is used instead."""
+
+        return "{}://{}:{}".format(
+            "https" if self.is_ssl_enabled() else "http",
+            self.config["api_url"] if len(self.config["api_url"]) > 0
+            else get_hostname(advertise_addr),
+            self.config.get("clientPort", 0)
+        )
+
     def set_folders_and_permissions(self, folders, mode=0o750):
         # Check folder permissions
         MaintenanceStatus("Setting up permissions")
@@ -273,6 +289,15 @@ class KafkaJavaCharmBase(JavaCharmBase):
         if self.distro == "apache":
             return False
         return False
+
+    def _get_ldap_settings(self, mds_urls):
+        result = "org.apache.kafka.common.security.oauthbearer." + \
+            "OAuthBearerLoginModule required " + \
+            'username="{}" password="{}" ' + \
+            'metadataServerUrls="{}";'
+        return result.format(
+            self.config["mds_user"], self.config["mds_password"],
+            mds_urls)
 
     def _cert_relation_set(self, event, rel=None, extra_sans=[]):
         # generate cert request if tls-certificates available
@@ -413,6 +438,13 @@ class KafkaJavaCharmBase(JavaCharmBase):
     def is_jmxexporter_enabled(self):
         # TODO(pguimaraes): implement this logic
         return False
+
+    def _get_confluent_ldap_jaas_config(self,
+                                        mds_user, mds_password, mds_urls):
+        return 'org.apache.kafka.common.security.oauthbearer.' + \
+            'OAuthBearerLoginModule required ' + \
+            'username={} password={} '.format(mds_user, mds_password) + \
+            'metadataServerUrls="{}"'.format(mds_urls)
 
     def _on_install(self, event):
         try:

@@ -42,18 +42,47 @@ class KafkaSchemaRegistryProvidesRelation(KafkaSchemaRegistryRelation):
         super().__init__(charm, relation_name, user, group, mode)
         self._clientauth = False
 
-    def set_converter(self, converter):
-        if not self.relation:
+    @property
+    def schema_url(self):
+        if not self.relations:
             return
-        self.relation.data[self.unit]["converter"] = converter
+        for r in self.relations:
+            if "url" in r.data[self.model.app]:
+                return r.data[self.model.app]["url"]
+
+    @schema_url.setter
+    def schema_url(self, u):
+        if not self.relations:
+            return
+        if not self.unit.is_leader():
+            return
+        for r in self.relations:
+            if u != r.data[self.model.app].get("url", ""):
+                r.data[self.model.app]["url"] = u
+
+    def set_converter(self, converter):
+        if not self.relations:
+            return
+        if not self.unit.is_leader():
+            return
+        for r in self.relations:
+            if converter != r.data[self.model.app].get("converter", ""):
+                r.data[self.model.app]["converter"] = converter
 
     def set_enhanced_avro_support(self, enhanced_avro):
-        if not self.relation:
+        if not self.relations:
             return
-        self.relation.data[self.unit]["enhanced_avro"] = \
-            str(enhanced_avro)
+        if not self.unit.is_leader():
+            return
+        a = str(enhanced_avro)
+        for r in self.relations:
+            if a != r.data[self.model.app].get("enhanced_avro", ""):
+                r.data[self.model.app]["enhanced_avro"] = a
 
     def set_schema_url(self, url, port, prot):
+        """DEPRECATED
+           Use schema_url instead"""
+
         if not self.relations:
             return
         if not self.unit.is_leader():
@@ -73,7 +102,9 @@ class KafkaSchemaRegistryProvidesRelation(KafkaSchemaRegistryRelation):
     def set_client_auth(self, clientauth):
         if not self.relation:
             return
-        self.relation.data[self.unit]["client_auth"] = str(self._clientauth)
+        c = str(self._clientauth)
+        if c != self.relation.data[self.unit]["client_auth"]:
+            self.relation.data[self.unit]["client_auth"] = c
 
 
 class KafkaSchemaRegistryRequiresRelation(KafkaSchemaRegistryRelation):
@@ -92,20 +123,16 @@ class KafkaSchemaRegistryRequiresRelation(KafkaSchemaRegistryRelation):
 
     @property
     def url(self):
-        if not self.relations:
-            return
         # Set is used to avoid repetitive URLs if schema_url config
         # is set instead of get_hostname of each advertise_addr
-        for r in self.relations:
-            if "url" in r.data[r.app]:
-                return r.data[r.app]["url"]
+        return self.get_param("url")
 
     def get_param(self, param):
-        if not self.relation:
+        if not self.relations:
             return None
-        for u in self.relation.units:
-            if param in self.relation.data[u]:
-                return self.relation.data[u][param]
+        for r in self.relations:
+            if param in r.data[r.app]:
+                return r.data[r.app][param]
         return None
 
     def generate_configs(self,

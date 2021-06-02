@@ -395,6 +395,7 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
     def _generate_opts(self, _lst,
                        keystore_path,
                        keystore_pwd,
+                       publicKeyPath,
                        get_default=True,
                        clientauth=False):
         if not _lst:
@@ -437,17 +438,18 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                         'OAuthBearerLoginModule required'
                     listener_opts[prefix + k +
                                   ".sasl.jaas.config"] += \
-                        ' publicKeyPath="{}";'.format(
-                             v["SASL"]["publicKeyPath"])
+                        ' publicKeyPath="{}";'.format(publicKeyPath)
                     if "confluent" in v["SASL"]:
-                        listener_opts[prefix + k +
-                                      ".oauthbearer.sasl.login.callback"
-                                      ".handler.class"] = \
-                            v["SASL"]["confluent"]["login.callback"]
-                        listener_opts[prefix + k +
-                                      ".oauthbearer.sasl.server.callback"
-                                      ".handler.class"] = \
-                            v["SASL"]["confluent"]["server.callback"]
+                        if "login.callback" in v["SASL"]["confluent"]:
+                            listener_opts[prefix + k +
+                                          ".oauthbearer.sasl.login.callback"
+                                          ".handler.class"] = \
+                                v["SASL"]["confluent"]["login.callback"]
+                        if "server.callback" in v["SASL"]["confluent"]:
+                            listener_opts[prefix + k +
+                                          ".oauthbearer.sasl.server.callback"
+                                          ".handler.class"] = \
+                                v["SASL"]["confluent"]["server.callback"]
             if v["cert_present"]:
                 listener_opts[prefix +
                               k + ".ssl.client.auth"] = \
@@ -600,6 +602,16 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
                 servers.append(endpoint)
         return ",".join(servers)
 
+    def get_bootstrap_data(self):
+        if not self.relations:
+            raise KafkaListenerRelationNotSetError()
+        lst_name = self.unit.app.name.replace("-", "_")
+        for r in self.relations:
+            for u in r.units:
+                if "bootstrap-data" in r.data[u]:
+                    j = json.loads(r.data[u]["bootstrap-data"])
+                    return copy.deepcopy(j[lst_name])
+
     def set_TLS_auth(self,
                      cert_chain,
                      truststore_path,
@@ -619,3 +631,56 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
 
     def on_listener_relation_changed(self, event):
         self.on_listener_relation_joined(event)
+
+    def generate_options(self,
+                         keystore_path,
+                         keystore_pwd,
+                         truststore_path,
+                         truststore_pwd,
+                         prefix="",
+                         get_listener=False,
+                         clientauth=False):
+        """Generates the options based on the listener provided
+        by the broker charm. """
+        result = {}
+        result[prefix + "bootstrap.servers"] = self.get_bootstrap_servers()
+        v = self.get_bootstrap_data()
+        result[prefix + "security.protocol"] = v["secprot"]
+
+        if len(keystore_path) > 0:
+            result[prefix + "ssl.key.password"] = keystore_pwd
+            result[prefix + "ssl.keystore.location"] = keystore_path
+            result[prefix + "ssl.keystore.password"] = keystore_pwd
+            if clientauth:
+                result[prefix + "ssl.client.auth"] = "required"
+        if len(truststore_path) > 0:
+            result[prefix + "ssl.truststore.location"] = truststore_path
+            result[prefix + "ssl.truststore.password"] = truststore_pwd
+
+        sasl = v["SASL"]
+        result[prefix + "sasl.mechanism"] = v["SASL"]["protocol"]
+        if v["SASL"]["protocol"] == "OAUTHBEARER":
+            result[prefix + "sasl.jaas.config"] = sasl["jaas.config"]
+            if "confluent" in sasl:
+                if "login.callback" in sasl["confluent"]:
+                    result[prefix +
+                           "sasl.login.callback.handler.class"] = \
+                        sasl["confluent"]["login.callback"]
+                if "server.callback" in sasl["confluent"]:
+                    result[prefix +
+                           "sasl.server.callback"
+                           ".handler.class"] = \
+                        sasl["confluent"]["server.callback"]
+        elif v["SASL"]["protocol"] == "GSSAPI":
+            result[prefix +
+                   "sasl.jaas.config"] = \
+                'com.sun.security.auth.module.Krb5LoginModule ' + \
+                'required useKeyTab=true storeKey=true keyTab=' + \
+                '"/etc/security/keytabs/kafka_broker.keytab" ' + \
+                'principal="{}";'.format(
+                    sasl["kerberos-principal"])
+            result[prefix +
+                   "sasl.kerberos.service.name"] = \
+                sasl["kerberos-protocol"]
+
+        return result if len(result) > 0 else None

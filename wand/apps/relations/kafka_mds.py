@@ -217,10 +217,38 @@ class KafkaMDSProvidesRelation(KafkaMDSRelation):
 
     @mds_url.setter
     def mds_url(self, u):
+        """mds_url should be set for both app-level and per unit.
+        The reason is that the RBAC settings should target one single
+        URL whilst the get_bootstrap_servers() logic in the requirer
+        side should get a comma-separated list of URLs"""
+        if not self.relations:
+            return
+        if self.unit.is_leader():
+            for r in self.relations:
+                if u != r.data[self.model.app].get("mds_url", ""):
+                    r.data[self.model.app]["mds_url"] = u
         self.state.mds_url = u
         for r in self.relations:
             if u != r.data[self.unit].get("mds_url", ""):
                 r.data[self.unit]["mds_url"] = u
+
+    @property
+    def public_key(self):
+        if not self.relations:
+            return None
+        for r in self.relations:
+            if "public-key" in r.data[r.app]:
+                return r.data[r.app]["public-key"]
+
+    @public_key.setter
+    def public_key(self, p):
+        if not self.relations:
+            return
+        if not self.unit.is_leader():
+            return
+        for r in self.relations:
+            if p != r.data[self.model.app].get("public-key", ""):
+                r.data[self.model.app]["public-key"] = p
 
     def on_mds_relation_joined(self, event):
         if not self.unit.is_leader():
@@ -337,8 +365,8 @@ class KafkaMDSRequiresRelation(KafkaMDSRelation):
         if not self.relations:
             return None
         for r in self.relations:
-            if "mds_super_user_pwd" in r.data[self.model.app]:
-                return r.data[self.model.app]["mds_super_user_pwd"]
+            if "mds_super_user_pwd" in r.data[r.app]:
+                return r.data[r.app]["mds_super_user_pwd"]
         return None
 
     @property
@@ -346,8 +374,8 @@ class KafkaMDSRequiresRelation(KafkaMDSRelation):
         if not self.relations:
             return None
         for r in self.relations:
-            if "mds_super_user" in r.data[self.model.app]:
-                return r.data[self.model.app]["mds_super_user"]
+            if "mds_super_user" in r.data[r.app]:
+                return r.data[r.app]["mds_super_user"]
         return None
 
     @property
@@ -362,8 +390,8 @@ class KafkaMDSRequiresRelation(KafkaMDSRelation):
 
     def get_public_key(self):
         for r in self.relations:
-            if "public-key" in r.data[self.model.app]:
-                return r.data[self.model.app]["public-key"]
+            if "public-key" in r.data[r.app]:
+                return r.data[r.app]["public-key"]
 
     @req_params.setter
     def req_params(self, p):

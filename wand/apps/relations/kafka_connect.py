@@ -57,7 +57,7 @@ class KafkaConnectProvidesRelation(KafkaConnectRelation):
 
     @url.setter
     def url(self, u):
-        if not self.charm.is_leader():
+        if not self.unit.is_leader():
             return
         if not self.relations:
             return
