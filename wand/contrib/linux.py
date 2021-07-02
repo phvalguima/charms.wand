@@ -123,6 +123,15 @@ def groupAdd(groupname,
     return subprocess.check_call(cmd)
 
 
+def set_folders_and_permissions(folders, user, group, mode=0o750):
+    # Check folder permissions
+    uid = pwd.getpwnam(user).pw_uid
+    gid = grp.getgrnam(group).gr_gid
+    for f in folders:
+        os.makedirs(f, mode=mode, exist_ok=True)
+        os.chown(f, uid, gid)
+
+
 # The issue: generally deployed hosts come with:
 # 127.0.0.1 <server-name>
 # That forces inter-cluster to open only to localhost interface
