@@ -62,11 +62,11 @@ def saveCrtChainToFile(buffer,
             f.write(crts[0])
             f.close()
         with open(ca_chain_path, "w") as f:
-            f.write(crts[1:])
+            f.write("\n".join(crts[1:]))
             f.close()
     else:
         with open(cert_path, "w") as f:
-            f.write(crts[0:])
+            f.write("\n".join(crts[0:]))
             f.close()
     if user and group:
         setFilePermissions(cert_path, user, group, mode=0o640)
