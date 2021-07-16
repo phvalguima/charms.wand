@@ -49,8 +49,6 @@ import shutil
 import copy
 import logging
 import subprocess
-import pwd
-import grp
 
 import json
 
@@ -95,10 +93,17 @@ def manage_lvm(device, dirname):
     physical device and add to the newly created volume.
     """
     lv_name = "lvm" + dirname.replace("/", "_")
-    vg_name = "vg" + lv_name
+    vg_name = "vg" + dirname.replace("/", "_")
     pv = device
-    if list_lvm_volume_group(device):
-        raise DiskMapHelperPVAlreadyTakenForLVM(device)
+    try:
+        if list_lvm_volume_group(device):
+            # PV already used, raise this as an issue
+            pv = None
+    except subprocess.CalledProcessError:
+        # Device does not exist in the list, continue
+        pass
+    if not pv:
+        raise DiskMapHelperPVAlreadyTakenForLVM(device, lv_name)
     if not is_lvm_physical_volume(device):
         # This is not a PV yet, create one
         create_lvm_physical_volume(device)
@@ -107,10 +112,10 @@ def manage_lvm(device, dirname):
         # If one does not exist, so we need to create both.
         create_lvm_volume_group(vg_name, pv)
         create_logical_volume(lv_name, vg_name)
-        return lv_name
-    # Now extend the lv_name:
-    extend_logical_volume_by_device(lv_name, pv)
-    # TODO: find FS already present and resize it as well
+    else:
+        # Now extend the lv_name:
+        extend_logical_volume_by_device(lv_name, pv)
+        # TODO: find FS already present and resize it as well
     return "/dev/{}/{}".format(vg_name, lv_name)
 
 
@@ -121,16 +126,13 @@ def create_dir(data_log_dev,
                group,
                fs_options=None):
 
-    # # In some clouds, such as Azure, the location shown is
-    # # actually a symlink. To clear this out, run:
-    # data_dev = os.path.realpath(data_log_dev)
-    if is_device_mounted(data_dev):
+    if is_device_mounted(data_log_dev):
         logger.warning("Data device {} already mounted".format(
-            data_dev))
+            data_log_dev))
         return
     lvm = None
     try:
-        lvm = manage_lvm(data_dev, data_log_dir)
+        lvm = manage_lvm(data_log_dev, data_log_dir)
         if not lvm:
             return
     except DiskMapHelperPVAlreadyTakenForLVM:
@@ -144,26 +146,18 @@ def create_dir(data_log_dev,
     if len(lvm or "") == 0:
         raise DiskMapHelperDeviceNotDefined(lvm)
     os.makedirs(data_log_dir, 0o750, exist_ok=True)
-    shutil.chown(data_log_dir,
-                 user=user,
-                 group=group)
     logger.debug("Data device: mkfs -t {}".format(data_log_fs))
     cmd = ["mkfs", "-t", data_log_fs, lvm]
     opts = fs_options
-    if "uid" not in fs_options:
-        if len(opts) > 0:
-            opts = opts + ","
-        opts = opts + "uid={}".format(pwd.getpwnam(user).pw_uid)
-    if "gid" not in fs_options:
-        if len(opts) > 0:
-            opts = opts + ","
-        opts = opts + "gid={}".format(grp.getgrnam(group).gr_gid)
     subprocess.check_call(cmd)
     logger.debug("mount {} to {} with options {} and fs {}".format(
         data_log_dir, lvm, opts, data_log_fs))
     mount(lvm, data_log_dir,
           options=opts,
           persist=True, filesystem=data_log_fs)
+    shutil.chown(data_log_dir,
+                 user=user,
+                 group=group)
 
 
 class DiskMapHelperPathAlreadyExistsError(Exception):
