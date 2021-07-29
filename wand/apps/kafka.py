@@ -10,6 +10,44 @@
 #  License for the specific language governing permissions and limitations
 #  under the License.
 
+"""
+
+Implements the common code across the Kafka stack charms.
+
+There are several common tasks that are contemplated here:
+    * install packages: install a list of packages + OpenJDK
+    * Authentication: there are several mechanisms and they repeat themselves
+    * Render config files such as override.conf for services
+    * Manage certificates relations or options
+
+
+To use it, Kafka charms must call the equivalent events such as:
+
+class KafkaCharmFinal(KafkaJavaCharmBase):
+
+    def __init__(self, *args):
+        ...
+
+    def _on_install(self, event):
+        super()._on_install(event)
+
+    def _on_config_changed(self, event):
+        super()._on_config_changed(event)
+
+    def _on_update_status(self, event):
+        super().on_update_status(event)
+
+
+
+Besides the shared event handling as shown above, kafka.py also contains
+classes that can be used to setup the LMA integration. For that, the Kafka
+final charm should use:
+
+    KafkaJavaCharmBaseNRPEMonitoring
+    KafkaJavaCharmBasePrometheusMonitorNode
+
+"""
+
 import base64
 import os
 import shutil
@@ -33,6 +71,10 @@ from charmhelpers.core.host import (
     service_running,
 )
 
+from ops.framework import (
+    Object,
+)
+
 from ops.model import (
     BlockedStatus,
     MaintenanceStatus,
@@ -52,6 +94,14 @@ from wand.apps.relations.tls_certificates import (
 )
 from wand.contrib.linux import (
     get_hostname
+)
+from wand.apps.relations.base_prometheus_monitoring import (
+    BasePrometheusMonitor
+)
+
+from nrpe.client import NRPEClient
+from charmhelpers.core.hookenv import (
+    open_port
 )
 
 logger = logging.getLogger(__name__)
@@ -83,10 +133,143 @@ Environment="{{key}}={{value}}"
 
 __all__ = [
     'KafkaJavaCharmBase',
+    'KafkaJavaCharmBaseNRPEMonitoring',
+    'KafkaJavaCharmBasePrometheusMonitorNode',
     'KafkaCharmBaseConfigNotAcceptedError',
     'KafkaCharmBaseMissingConfigError',
     'KafkaCharmBaseFeatureNotImplementedError'
 ]
+
+
+class KafkaJavaCharmBasePrometheusMonitorNode(BasePrometheusMonitor):
+    """Prometheus Monitor node issues a request for prometheus2 to
+    setup a scrape job against its address.
+
+    Space of the relation will be used to generate address.
+
+
+    Implement the following methods in the your KafkaJavaCharmBase.
+
+    # Override the method below so the KafkaJavaCharmBase can know if
+    # prometheus relation is being used.
+    def is_jmxexporter_enabled(self):
+        if self.prometheus.relations:
+            return True
+        return False
+
+    ...
+
+    def __init__(self, *args):
+
+        self.prometheus = \
+            KafkaJavaCharmBasePrometheusMonitorNode(
+                self, 'prometheus-manual',
+                port=self.config.get("jmx-exporter-port", 9404),
+                internal_endpoint=self.config.get(
+                    "jmx_exporter_use_internal", False),
+                labels=self.config.get("jmx_exporter_labels", None))
+
+        self.framework.observe(
+            self.on.prometheus_manual_relation_joined,
+            self.prometheus.on_prometheus_relation_joined)
+        self.framework.observe(
+            self.on.prometheus_manual_relation_changed,
+            self.prometheus.on_prometheus_relation_changed)
+    """
+
+    def __init__(self, charm, relation_name,
+                 port=9404, internal_endpoint=False, labels=None):
+        """Args:
+            charm: CharmBase object
+            relation_name: relation name with prometheus
+            port: port value to open
+            internal_endpoint: defines if the relation
+            labels: str comma-separated key=value labels for the job.
+                Converted to dict and passed in the request
+        """
+        super().__init__(charm, relation_name)
+        self.port = port
+        self.endpoint = \
+            self.binding_addr if internal_endpoint else self.advertise_addr
+        if labels:
+            self.labels = {
+                la.split("=")[0]: la.split("=")[1] for la in labels.split(",")
+            }
+        open_port(self.port)
+
+    def on_prometheus_relation_joined(self, event):
+        self.scrape_request(port=self.port,
+                            metrics_path="/",
+                            endpoint=self.endpoint,
+                            labels=self.labels)
+
+    def on_prometheus_relation_changed(self, event):
+        return
+
+
+class KafkaJavaCharmBaseNRPEMonitoring(Object):
+    """Kafka charm used to add NRPE support.
+
+    Create an object of this class to hold the NRPE relation info.
+
+
+    To instantiate this NRPE, use the following logic:
+
+    def __init__(self, *args):
+        self.nrpe = KafkaJavaCharmBaseNRPEMonitoring(
+            self,
+            svcs=["kafka"],
+            endpoints=["127.0.0.1:9000"],
+            nrpe_relation_name='nrpe-external-master')
+
+
+    The class inherits from Object instead of a relation so it can capture
+    events for NRPE relation.
+    """
+
+    def __init__(self, charm, svcs=[], endpoints=[],
+                 nrpe_relation_name='nrpe-external-master'):
+        """Intialize with the list of services and ports to be monitored.
+
+        Args:
+            svcs: list -> list of service names to be monitored by NRPE
+                on systemd.
+            endpoints: list -> list of endpoints (IP/hostname:PORT)
+                to be monitored by NRPE using check_tcp.
+            nrpe_relation_name: str -> name of the relation
+        """
+        super().__init__(charm, nrpe_relation_name)
+        self.nrpe = NRPEClient(charm, nrpe_relation_name)
+        self.framework.observe(self.nrpe.on.nrpe_available,
+                               self.on_nrpe_available)
+        self.services = svcs
+        self.endpoints = endpoints
+
+    def on_nrpe_available(self, event):
+        # Deal with services list first:
+        for s in self.services:
+            check_name = "check_{}_{}".format(
+                self.model.unit.name.replace("/", "_"), s)
+            self.nrpe.add_check(command=[
+                '/usr/lib/nagios/plugins/check_systemd', s
+            ], name=check_name)
+        # Deal with endpoints: need to separate the endpoints
+        for e in self.endpoints:
+            if ":" not in e:
+                # No port specified, jump this endpoint
+                continue
+            hostname = e.split(":")[0]
+            port = e.split(":")[1]
+            check_name = "check_{}_{}".format(
+                self.model.unit.name.replace("/", "_"),
+                hostname.replace(".", "_"))
+            self.nrpe.add_check(command=[
+                '/usr/lib/nagios/plugins/check_tcp',
+                '-H', hostname,
+                '-p', port,
+            ], name=check_name)
+        # Save all new checks to filesystem and to Nagios
+        self.nrpe.commit()
 
 
 class KafkaCharmBaseMissingRelationError(Exception):
@@ -124,6 +307,8 @@ class KafkaCharmBaseFeatureNotImplementedError(Exception):
 class KafkaJavaCharmBase(JavaCharmBase):
 
     LATEST_VERSION_CONFLUENT = "6.1"
+    JMX_EXPORTER_JAR_FOLDER = "/opt/prometheus/"
+    JMX_EXPORTER_JAR_NAME = "jmx_prometheus_javaagent.jar"
 
     @property
     def unit_folder(self):
@@ -154,7 +339,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
         # Save the internal content of keytab file from the action.
         # use it as part of the context in the config_changed
         self.keytab_b64 = ""
-        self.services = None
+        self.services = [self.service]
 
     def on_update_status(self, event):
         """ This method will update the status of the charm according
@@ -235,6 +420,8 @@ class KafkaJavaCharmBase(JavaCharmBase):
         self.keytab = filename
 
     def install_packages(self, java_version, packages):
+        """Install the packages passed as arguments."""
+
         MaintenanceStatus("Installing packages")
         version = self.config.get("version", self.LATEST_VERSION_CONFLUENT)
         if self.distro == "confluent":
@@ -252,8 +439,29 @@ class KafkaJavaCharmBase(JavaCharmBase):
         elif self.distro == "apache":
             raise Exception("Not Implemented Yet")
         super().install_packages(java_version, packages)
-        folders = ["/etc/kafka", "/var/log/kafka", "/var/lib/kafka"]
+        folders = [
+            "/etc/kafka",
+            "/var/log/kafka",
+            "/var/lib/kafka",
+            self.JMX_EXPORTER_JAR_FOLDER]
         self.set_folders_and_permissions(folders)
+
+        # Now, setup jmx exporter logic
+        self.jmx_version = self.config.get("jmx_exporter_version", "0.12.0")
+        self.jmx_jar_url = self.config.get(
+            "jmx_exporter_url",
+            "https://repo1.maven.org/maven2/io/prometheus/jmx/"
+            "jmx_prometheus_javaagent/{}/"
+            "jmx_prometheus_javaagent-{}.jar".format(
+                self.jmx_version, self.jmx_version))
+        if len(self.jmx_version) == 0 or len(self.jmx_jar_url) == 0:
+            # Not enabled, finish the method
+            return
+        subprocess.check_output(['wget', '-qO', '-', self.jmx_jar_url])
+        setFilePermissions(
+            self.JMX_EXPORTER_JAR_FOLDER + self.JMX_EXPORTER_JAR_NAME,
+            self.config.get("user", "kafka"),
+            self.config.get("group", "kafka"), 0o640)
 
     def _get_api_url(self, advertise_addr):
         """Returns the API endpoint for a given service. If the config
@@ -436,7 +644,6 @@ class KafkaJavaCharmBase(JavaCharmBase):
         return False
 
     def is_jmxexporter_enabled(self):
-        # TODO(pguimaraes): implement this logic
         return False
 
     def _get_confluent_ldap_jaas_config(self,
@@ -547,7 +754,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
 
     def render_service_override_file(self,
                                      target,
-                                     jmx_file_name="kafka"):
+                                     jmx_file_name="prometheus.yaml"):
         service_unit_overrides = yaml.safe_load(
             self.config.get('service-unit-overrides', ""))
         service_overrides = yaml.safe_load(
@@ -571,10 +778,17 @@ class KafkaJavaCharmBase(JavaCharmBase):
                 "config=/etc/kafka/jolokia.properties")
         if self.is_jmxexporter_enabled():
             kafka_opts.append(
-                "-javaagent:/opt/prometheus/jmx_prometheus_javaagent.jar="
-                "{}:/opt/prometheus/{}.yml"
-                .format(self.config.get("jmx-exporter-port", 8079),
-                        jmx_file_name))
+                "-javaagent:{}={}:{}"
+                .format(
+                    self.JMX_EXPORTER_JAR_FOLDER + self.JMX_EXPORTER_JAR_NAME,
+                    self.config.get("jmx-exporter-port", 9404),
+                    self.JMX_EXPORTER_JAR_FOLDER + jmx_file_name))
+            render(source="prometheus.yaml",
+                   target="/opt/prometheus/{}".format(jmx_file_name),
+                   owner=self.config.get('user'),
+                   group=self.config.get("group"),
+                   perms=0o644,
+                   context={})
         if len(kafka_opts) == 0:
             # Assumed KAFKA_OPTS would be set at some point
             # however, it was not, so removing it

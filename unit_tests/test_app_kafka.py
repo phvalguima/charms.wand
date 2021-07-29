@@ -126,6 +126,7 @@ class TestAppKafka(unittest.TestCase):
                          data_log_fs=None)
         mock_warning.assert_called()
 
+    @patch.object(kafka, "setFilePermissions")
     @patch.object(kafka.KafkaJavaCharmBase, "set_folders_and_permissions")
     @patch.object(java.JavaCharmBase, "install_packages")
     @patch.object(kafka, "apt_update")
@@ -134,7 +135,8 @@ class TestAppKafka(unittest.TestCase):
                               mock_add_source,
                               mock_apt_update,
                               mock_java_inst_pkgs,
-                              mock_set_folders_perms):
+                              mock_set_folders_perms,
+                              mock_set_file_perms):
         harness = Harness(kafka.KafkaJavaCharmBase)
         self.addCleanup(harness.cleanup)
         harness.begin()

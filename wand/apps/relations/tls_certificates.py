@@ -101,6 +101,9 @@ class TLSCertificateRequiresRelation(Object):
         if not self.relation:
             raise TLSCertificateRelationNotPresentError()
         name = self.unit.name.replace("/", "_")
+        # Request not issued yet, therefore there is nothing to do
+        if "common_name" not in self.relation.data[self.unit]:
+            raise TLSCertificateDataNotFoundInRelationError()
         common_name = self.relation.data[self.unit]["common_name"]
         certs = {}
         # Search through the units until finding which is the easyrsa
