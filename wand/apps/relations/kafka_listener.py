@@ -66,13 +66,12 @@ FOR NOW, MTLS IS NOT AVAILABLE.
 
 Examples of requests:
 # 1) Request for a basic listener:
-Request a listener with no certificates (PLAINTEXT)
+Request a listener with no certificates (PLAINTEXT) or auth (SASL)
 
 {
     "is_public": False,
     "plaintext_pwd": "",
     "secprot": "PLAINTEXT",
-    "SASL": {},
     "cert": ""
 }
 
@@ -83,7 +82,6 @@ advertise_address:
     "is_public": True,
     "plaintext_pwd": "",
     "secprot": "SSL",
-    "SASL": {},
     "cert": ""
 }
 
@@ -257,6 +255,7 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                 "cert_present": True,
                 "sasl_present": False,
                 "secprot": "SSL",
+                "port": self.available_port,
                 "SASL": {},
                 "cert": "",
                 "ts_path": self.ts_path,
@@ -274,6 +273,7 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                 "cert_present": True,
                 "sasl_present": False,
                 "secprot": "SSL",
+                "port": self.available_port + 1,
                 "SASL": {},
                 "cert": "",
                 "ts_path": self.ts_path,
@@ -291,6 +291,7 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                 "cert_present": True,
                 "sasl_present": False,
                 "secprot": "SSL",
+                "port": self.available_port + 2,
                 "SASL": {},
                 "cert": "",
                 "ts_path": self.ts_path,
@@ -310,7 +311,14 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                           keystore_path,
                           keystore_pwd,
                           get_default=True,
-                          clientauth=False):
+                          clientauth=False,
+                          bootstrap_url=None):
+        """Get the listener requests from the relations.
+
+        Iterate over each relation and capture the requests for endpoints.
+        Optionally, a custom URL for bootstrap can be specified instead of
+        using the available IP + PORT.
+        """
         self.available_port = self.port
         if not self.unit.is_leader():
             return {}
@@ -329,50 +337,52 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
         # Consider the 3 ports to be used if default is enabled
         self.available_port += 3
         for r in self.relations:
-            for u in r.units:
-                if not u.is_leader():
-                    # Process only the data corresponding to the
-                    # remote unit's leader
-                    continue
-                if "request" in r.data[u]:
-                    inter = r.data[u]["request"]
-                else:
-                    continue
-                req = json.loads(inter)
-                if not req:
-                    # for the case req = {}
-                    continue
-                # Jump to the next port available
-                self.available_port += 1
-                listener_name = u.app.name.replace("-", "_")
-                addr = None
-                if req.get("is_public", False):
-                    addr = "*ADVERTISE*"
-                else:
-                    addr = "*BINDING*"
-                lt = listener_name + \
-                    "://" + addr + ":" + \
+            if "request" in r.data[r.app]:
+                inter = r.data[r.app]["request"]
+            else:
+                continue
+            req = json.loads(inter)
+            if not req:
+                # for the case req = {}
+                continue
+            # Jump to the next port available
+            self.available_port += 1
+            listener_name = r.app.name.replace("-", "_")
+            addr = None
+            if req.get("is_public", False):
+                addr = "*ADVERTISE*"
+            else:
+                addr = "*BINDING*"
+            if not bootstrap_url:
+                lt = listener_name + "://" + addr + ":" + \
                     str(self.available_port)
-                listeners[listener_name] = {}
-                listeners[listener_name]["bootstrap_server"] = \
-                    addr + ":" + \
+            else:
+                lt = listener_name + "://" + bootstrap_url + ":" + \
                     str(self.available_port)
-                listeners[listener_name]["endpoint"] = lt
-                listeners[listener_name]["advertise"] = lt
-                listeners[listener_name]["secprot"] = req["secprot"]
-                listeners[listener_name]["SASL"] = copy.deepcopy(req["SASL"])
-                listeners[listener_name]["plaintext_pwd"] = \
-                    req["plaintext_pwd"]
-                listeners[listener_name]["cert_present"] = \
-                    len(req["cert"]) > 0
-                listeners[listener_name]["sasl_present"] = \
-                    "SASL" in req
-                listeners[listener_name]["ts_path"] = self.ts_path
-                listeners[listener_name]["ts_pwd"] = self.ts_pwd
-                listeners[listener_name]["ks_path"] = keystore_path
-                listeners[listener_name]["ks_pwd"] = keystore_pwd
-                listeners[listener_name]["clientauth"] = clientauth
+            listeners[listener_name] = {}
+            listeners[listener_name]["bootstrap_server"] = \
+                addr + ":" + \
+                str(self.available_port)
+            # Store ports because we will need for open_port and close_port
+            listeners[listener_name]["port"] = self.available_port
+            listeners[listener_name]["endpoint"] = lt
+            listeners[listener_name]["advertise"] = lt
+            listeners[listener_name]["secprot"] = req["secprot"]
+            listeners[listener_name]["SASL"] = \
+                copy.deepcopy(req.get("SASL", {}))
+            listeners[listener_name]["plaintext_pwd"] = \
+                req["plaintext_pwd"]
+            listeners[listener_name]["cert_present"] = \
+                len(req["cert"]) > 0
+            listeners[listener_name]["sasl_present"] = \
+                "SASL" in req
+            listeners[listener_name]["ts_path"] = self.ts_path
+            listeners[listener_name]["ts_pwd"] = self.ts_pwd
+            listeners[listener_name]["ks_path"] = keystore_path
+            listeners[listener_name]["ks_pwd"] = keystore_pwd
+            listeners[listener_name]["clientauth"] = clientauth
         # update all the units
+        self.listeners = copy.deepcopy(listeners)
         return json.dumps(listeners)
 
     def get_sasl_mechanisms_list(self):
@@ -391,6 +401,12 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
             "*ADVERTISE*", get_hostname(self.advertise_addr))
         listeners = json.loads(listeners)
         return listeners
+
+    def get_ports(self):
+        ports = []
+        for k, v in self.listeners.items():
+            ports.append(v["port"])
+        return ports
 
     def _generate_opts(self, _lst,
                        keystore_path,
@@ -475,13 +491,8 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
         return
 
     def on_listener_relation_changed(self, event):
-        self._get_all_tls_cert()
+        self._get_all_tls_certs()
         return
-#        listener, _ = self.get_unit_listener(
-#            keystore_path="",
-#            keystore_pwd="",
-#            get_default=False,
-#            clientauth=False)
 
     def set_bootstrap_data(self, lst):
         if not lst or len(lst) == 0:
@@ -579,8 +590,10 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
     def _set_request(self):
         if not self.relations:
             return
+        if not self.charm.is_leader():
+            return
         for r in self.relations:
-            r.data[self.unit]["request"] = self.state.request
+            r.data[self.charm.app]["request"] = self.state.request
 
     def get_bootstrap_servers(self):
         if not self.relations:

@@ -448,16 +448,20 @@ class KafkaJavaCharmBase(JavaCharmBase):
 
         # Now, setup jmx exporter logic
         self.jmx_version = self.config.get("jmx_exporter_version", "0.12.0")
-        self.jmx_jar_url = self.config.get(
+        jar_url = self.config.get(
             "jmx_exporter_url",
             "https://repo1.maven.org/maven2/io/prometheus/jmx/"
             "jmx_prometheus_javaagent/{}/"
-            "jmx_prometheus_javaagent-{}.jar".format(
-                self.jmx_version, self.jmx_version))
+            "jmx_prometheus_javaagent-{}.jar")
+        self.jmx_jar_url = jar_url.format(
+                self.jmx_version, self.jmx_version)
         if len(self.jmx_version) == 0 or len(self.jmx_jar_url) == 0:
             # Not enabled, finish the method
             return
-        subprocess.check_output(['wget', '-qO', '-', self.jmx_jar_url])
+        subprocess.check_output(
+            ['wget', '-qO',
+             self.JMX_EXPORTER_JAR_FOLDER + self.JMX_EXPORTER_JAR_NAME,
+             self.jmx_jar_url])
         setFilePermissions(
             self.JMX_EXPORTER_JAR_FOLDER + self.JMX_EXPORTER_JAR_NAME,
             self.config.get("user", "kafka"),

@@ -23,17 +23,22 @@ class model:
 
 
 class relation:
-    def __init__(self, data, app_name="test"):
-        self._app = app_name
+    def __init__(self, data, app):
+        self._app = app
         self._units = [unit(False, self._app),
                        unit(True, self._app),
                        unit(False, self._app)]
         j = json.dumps(data)
         self._data = {
+            self._app: {"request": j},
             self._units[0]: {"request": j},
             self._units[1]: {"request": j},
             self._units[2]: {"request": j}
         }
+
+    @property
+    def app(self):
+        return self._app
 
     @property
     def data(self):
@@ -113,7 +118,7 @@ class KafkaListenerRelationTest(unittest.TestCase):
             "secprot": "PLAINTEXT",
             "SASL": {},
             "cert": ""
-        }, app_name="test"), relation({
+        }, app=app("test")), relation({
             "is_public": True,
             "plaintext_pwd": "",
             "secprot": "SASL_SSL",
@@ -123,10 +128,10 @@ class KafkaListenerRelationTest(unittest.TestCase):
                 "kerberos-protocol": "http"
             },
             "cert": ""
-        }, app_name="connect")]
+        }, app=app("connect"))]
         obj = KafkaListenerProvidesRelation(None, "listener")
         # Given the __init__ has been replaced with a mock object, manually
         # set the port value:
         obj._port = mock_port.return_value
         obj.get_unit_listener("", "", False, False)
-        self.assertEqual(obj.get_unit_listener("", "", False, False), '{"test": {"bootstrap_server": "*BINDING*:9092", "endpoint": "test://*BINDING*:9092", "advertise": "test://*BINDING*:9092", "secprot": "PLAINTEXT", "SASL": {}, "plaintext_pwd": "", "cert_present": false, "sasl_present": true, "ts_path": "test", "ts_pwd": "test", "ks_path": "", "ks_pwd": "", "clientauth": false}, "connect": {"bootstrap_server": "*ADVERTISE*:9092", "endpoint": "connect://*ADVERTISE*:9092", "advertise": "connect://*ADVERTISE*:9092", "secprot": "SASL_SSL", "SASL": {"protocol": "GSSAPI", "kerberos-principal": "principal", "kerberos-protocol": "http"}, "plaintext_pwd": "", "cert_present": false, "sasl_present": true, "ts_path": "test", "ts_pwd": "test", "ks_path": "", "ks_pwd": "", "clientauth": false}}') # noqa
+        self.assertEqual(obj.get_unit_listener("", "", False, False), '{"test": {"bootstrap_server": "*BINDING*:9092", "port": 9092, "endpoint": "test://*BINDING*:9092", "advertise": "test://*BINDING*:9092", "secprot": "PLAINTEXT", "SASL": {}, "plaintext_pwd": "", "cert_present": false, "sasl_present": true, "ts_path": "test", "ts_pwd": "test", "ks_path": "", "ks_pwd": "", "clientauth": false}, "connect": {"bootstrap_server": "*ADVERTISE*:9092", "port": 9092, "endpoint": "connect://*ADVERTISE*:9092", "advertise": "connect://*ADVERTISE*:9092", "secprot": "SASL_SSL", "SASL": {"protocol": "GSSAPI", "kerberos-principal": "principal", "kerberos-protocol": "http"}, "plaintext_pwd": "", "cert_present": false, "sasl_present": true, "ts_path": "test", "ts_pwd": "test", "ks_path": "", "ks_pwd": "", "clientauth": false}}') # noqa

@@ -126,6 +126,7 @@ class TestAppKafka(unittest.TestCase):
                          data_log_fs=None)
         mock_warning.assert_called()
 
+    @patch.object(kafka, "subprocess")
     @patch.object(kafka, "setFilePermissions")
     @patch.object(kafka.KafkaJavaCharmBase, "set_folders_and_permissions")
     @patch.object(java.JavaCharmBase, "install_packages")
@@ -136,7 +137,9 @@ class TestAppKafka(unittest.TestCase):
                               mock_apt_update,
                               mock_java_inst_pkgs,
                               mock_set_folders_perms,
-                              mock_set_file_perms):
+                              mock_set_file_perms,
+                              mock_subprocess_check):
+
         harness = Harness(kafka.KafkaJavaCharmBase)
         self.addCleanup(harness.cleanup)
         harness.begin()
@@ -151,6 +154,13 @@ class TestAppKafka(unittest.TestCase):
             " stable main", mock_add_source.call_args[0])
         mock_apt_update.assert_called()
         mock_java_inst_pkgs.assert_called()
+        # Check subprocess call for jmx exporter
+        mock_subprocess_check.check_output.assert_called()
+        mock_subprocess_check.check_output.assert_any_call(
+            ['wget', '-qO', '/opt/prometheus/jmx_prometheus_javaagent.jar',
+             'https://repo1.maven.org/maven2/io/prometheus/jmx/'
+             'jmx_prometheus_javaagent/0.12.0/'
+             'jmx_prometheus_javaagent-0.12.0.jar'])
 
     @patch.object(logger, "warning")
     @patch.object(shutil, "chown")
