@@ -11,13 +11,21 @@ class BasePrometheusMonitor(RelationManagerBase):
                        port,
                        metrics_path,
                        endpoint,
-                       ca_cert=None):
+                       ca_cert=None,
+                       job_name=None,
+                       labels=None):
         """Request registers the Prometheus scrape job.
         port: to be used as part of the target
+
+        Args:
+        - port: port to be targeted by prometheus for scrape
+        - metrics_path: HTTP request path
+        - endpoint: target endpoint
         """
         # advertise_addr given that minio endpoint uses advertise_addr
         # to find its hostname
-        name = "{}_node".format(self._charm.unit.name.replace("/", "-"))
+        name = job_name or \
+            "{}_node".format(self._charm.unit.name.replace("/", "-"))
         data = {
             'job_name': name,
             'job_data': {
@@ -29,6 +37,9 @@ class BasePrometheusMonitor(RelationManagerBase):
                 'metrics_path': metrics_path
             }
         }
+        if labels:
+            for c in range(0, len(data["job_data"]["static_configs"])):
+                data["job_data"]["static_configs"][c]["labels"] = labels
         if ca_cert:
             data['tls_config'] = {'ca_file': '__ca_file__'}
             data['scheme'] = 'https'

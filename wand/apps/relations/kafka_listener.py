@@ -491,8 +491,11 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
         return
 
     def on_listener_relation_changed(self, event):
-        self._get_all_tls_certs()
-        return
+        # Check certificates across this unit and remotes. That avoids errors
+        # down the road if some apps are using SSL set and others not.
+        if not self.is_TLS_enabled():
+            return
+        self._get_all_tls_cert()
 
     def set_bootstrap_data(self, lst):
         if not lst or len(lst) == 0:
