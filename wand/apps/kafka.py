@@ -169,12 +169,10 @@ class KafkaJavaCharmBasePrometheusMonitorNode(BasePrometheusMonitor):
                     "jmx_exporter_use_internal", False),
                 labels=self.config.get("jmx_exporter_labels", None))
 
+        # Optionally, listen to prometheus_job_available events
         self.framework.observe(
-            self.on.prometheus_manual_relation_joined,
-            self.prometheus.on_prometheus_relation_joined)
-        self.framework.observe(
-            self.on.prometheus_manual_relation_changed,
-            self.prometheus.on_prometheus_relation_changed)
+            self.prometheus.on.prometheus_job_available,
+            self.on_prometheus_job_available)
     """
 
     def __init__(self, charm, relation_name,
@@ -191,20 +189,21 @@ class KafkaJavaCharmBasePrometheusMonitorNode(BasePrometheusMonitor):
         self.port = port
         self.endpoint = \
             self.binding_addr if internal_endpoint else self.advertise_addr
+        self.labels = None
         if labels:
             self.labels = {
                 la.split("=")[0]: la.split("=")[1] for la in labels.split(",")
             }
         open_port(self.port)
+        self.framework.observe(
+            self.on.prometheus_job_available,
+            self.on_prometheus_job_available)
 
-    def on_prometheus_relation_joined(self, event):
-        self.scrape_request(port=self.port,
-                            metrics_path="/",
-                            endpoint=self.endpoint,
-                            labels=self.labels)
-
-    def on_prometheus_relation_changed(self, event):
-        return
+    def on_prometheus_job_available(self, event):
+        self.scrape_request_all_peers(
+            port=self.port,
+            metrics_path="/",
+            labels=self.labels)
 
 
 class KafkaJavaCharmBaseNRPEMonitoring(Object):
