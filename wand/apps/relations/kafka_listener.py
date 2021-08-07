@@ -593,7 +593,7 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
     def _set_request(self):
         if not self.relations:
             return
-        if not self.charm.is_leader():
+        if not self.charm.unit.is_leader():
             return
         for r in self.relations:
             r.data[self.charm.app]["request"] = self.state.request
@@ -661,6 +661,9 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
         result = {}
         result[prefix + "bootstrap.servers"] = self.get_bootstrap_servers()
         v = self.get_bootstrap_data()
+        # If get bootstrap data is not yet available, return empty
+        if not v:
+            return None
         result[prefix + "security.protocol"] = v["secprot"]
 
         if len(keystore_path) > 0:

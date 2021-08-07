@@ -55,6 +55,7 @@ import subprocess
 import logging
 import yaml
 from socket import gethostname
+import socket
 
 import pwd
 import grp
@@ -96,7 +97,8 @@ from wand.contrib.linux import (
     get_hostname
 )
 from wand.apps.relations.base_prometheus_monitoring import (
-    BasePrometheusMonitor
+    BasePrometheusMonitor,
+    BasePrometheusMonitorMissingEndpointInfoError
 )
 
 from nrpe.client import NRPEClient
@@ -200,10 +202,23 @@ class KafkaJavaCharmBasePrometheusMonitorNode(BasePrometheusMonitor):
             self.on_prometheus_job_available)
 
     def on_prometheus_job_available(self, event):
-        self.scrape_request_all_peers(
-            port=self.port,
-            metrics_path="/",
-            labels=self.labels)
+        try:
+            self.scrape_request_all_peers(
+                port=self.port,
+                metrics_path="/",
+                labels=self.labels)
+        except BasePrometheusMonitorMissingEndpointInfoError:
+            # This is possible to happen if the following sequence
+            # of events happens:
+            # 1) cluster-changed: new peer updated and added endpoint
+            # 2) prometheus-changed event: peer info recovered
+            #       issue the -available event
+            # 3) cluster-joined: new peer in the relation
+            # 4) prometheus-available:
+            #       there was no time for the new peer to add its own
+            #       endpoint information. Reinvoke prometheus-changed
+            #       on the worst case, this event will be deferred
+            self.on_prometheus_relation_changed(event)
 
 
 class KafkaJavaCharmBaseNRPEMonitoring(Object):
@@ -511,20 +526,29 @@ class KafkaJavaCharmBase(JavaCharmBase):
             mds_urls)
 
     def _cert_relation_set(self, event, rel=None, extra_sans=[]):
+        # Will introduce this CN format later
+        def __get_cn():
+            return "*." + ".".join(socket.getfqdn().split(".")[1:])
         # generate cert request if tls-certificates available
-        # rel may be set to None in cases such
-        # as config-changed or install events
-        # In these cases, the goal is to run the
-        # validation at the end of this method
+        # rel may be set to None in cases such as config-changed
+        # or install events. In these cases, the goal is to run
+        # the validation at the end of this method
         if rel:
-            if self.certificates.relation and rel.relation:
+            if self.certificates.relation:
                 sans = [
-                    rel.binding_addr,
-                    rel.advertise_addr,
-                    rel.hostname,
-                    gethostname()
+                    socket.gethostname(),
+                    socket.getfqdn()
                 ]
+                # We do not need to know if any relations exists but rather
+                # if binding/advertise addresses exists.
+                if rel.binding_addr:
+                    sans.append(rel.binding_addr)
+                if rel.advertise_addr:
+                    sans.append(rel.advertise_addr)
+                if rel.hostname:
+                    sans.append(rel.hostname)
                 sans += extra_sans
+
                 # Common name is always CN as this is the element
                 # that organizes the cert order from tls-certificates
                 self.certificates.request_server_cert(
@@ -532,23 +556,20 @@ class KafkaJavaCharmBase(JavaCharmBase):
                     sans=sans)
             logger.info("Either certificates "
                         "relation not ready or not set")
-        # This try/except will raise an exception if
-        # tls-certificate is set and there is no
-        # certificate available on the relation yet. That will also cause the
+        # This try/except will raise an exception if tls-certificate
+        # is set and there is no certificate available on the relation yet.
+        # That will also cause the
         # event to be deferred, waiting for certificates relation to finish
-        # If tls-certificates is not set, then the try
-        # will run normally, either
-        # marking there is no certificate configuration
-        # set or concluding the method.
+        # If tls-certificates is not set, then the try will run normally,
+        # either marking there is no certificate configuration set or
+        # concluding the method.
         try:
-            # Iterated over each of the methods present on the list and all  of
-            # them returned a cert or key.
-            if not self.is_ssl_enabled():
+            if (not self.get_ssl_cert() or not self.get_ssl_key()):
                 self.model.unit.status = \
-                    BlockedStatus("Waiting for certificates"
-                                  " relation or option")
-                logger.info("Waiting for certificates"
-                            " relation to publish data")
+                    BlockedStatus("Waiting for certificates "
+                                  "relation or option")
+                logger.info("Waiting for certificates relation "
+                            "to publish data")
                 return False
         # These excepts will treat the case tls-certificates relation is used
         # but the relation is not ready yet
@@ -562,8 +583,6 @@ class KafkaJavaCharmBase(JavaCharmBase):
                               "relation set, waiting...")
             logger.warning("There is no certificate option or "
                            "relation set, waiting...")
-            # We need to defer this event as several different events use
-            # this method (relation-joined, -changed, config-changed, etc)
             if event:
                 event.defer()
             return False

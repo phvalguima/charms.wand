@@ -87,6 +87,8 @@ class TLSCertificateRequiresRelation(Object):
         else:
             # subsequent requests go in the collection
             requests = to_publish_json.get('cert_requests', {})
+            if isinstance(requests, str):
+                requests = json.loads(requests)
             requests[cn] = {'sans': sans or []}
             to_publish_json['cert_requests'] = json.dumps(requests)
 
@@ -119,6 +121,8 @@ class TLSCertificateRequiresRelation(Object):
                 if '{}.processed_requests'.format(name) in data:
                     certs_data = \
                         data['{}.processed_requests'.format(name)] or {}
+                    if isinstance(certs_data, str):
+                        certs_data = json.loads(certs_data)
                     for k, v in certs_data.items():
                         certs[k] = {
                             "cert": self._process_cert(v["cert"]),

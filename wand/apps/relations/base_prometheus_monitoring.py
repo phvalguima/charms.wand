@@ -55,6 +55,27 @@ class MyCharm(CharmBase):
         # self.scrape_request(...) or self.scrape_request_all_peers(...)
         .....
 
+
+
+    def on_prometheus_job_available(self, event):
+        try:
+            self.scrape_request_all_peers(.....)
+
+        except BasePrometheusMonitorMissingEndpointInfoError:
+            # This is possible to happen if the following sequence
+            # of events happens:
+            # 1) cluster-changed: new peer updated and added endpoint
+            # 2) prometheus-changed event: peer info recovered
+            #       issue the -available event
+            # 3) cluster-joined: new peer in the relation
+            # 4) prometheus-available:
+            #       there was no time for the new peer to add its own
+            #       endpoint information. Reinvoke prometheus-changed
+            #       on the worst case, this event will be deferred
+            self.on_prometheus_relation_changed(event)
+
+
+
     def on_peer_relation_changed(self, event):
         # If peer relation is needed (i.e., using scrape_request_all_peers)
         # then we need to rerun self.prometheus.on_prometheus_relation_changed
@@ -88,6 +109,12 @@ class BasePrometheusMonitorNoPeerRelationFoundError(Exception):
         self,
         msg="No peers relation available, scrape_request_all_peers "
             "should not be used."):
+        super().__init__(msg)
+
+
+class BasePrometheusMonitorMissingEndpointInfoError(Exception):
+    def __init__(self,
+                 msg="Missing one endpoint info, defer event advised."):
         super().__init__(msg)
 
 
@@ -148,9 +175,13 @@ class BasePrometheusMonitor(RelationManagerBase):
         ]
         peer_rel = self.framework.model.relations[self.peer_rel_name][0]
         for u in peer_rel.units:
+            entryname = self._relation_name + "_endpoint"
+            if entryname not in peer_rel.data[u]:
+                raise BasePrometheusMonitorMissingEndpointInfoError()
             targets.append(
                 "{}:{}".format(
-                    peer_rel.data[u][self._relation_name + "_endpoint"], port))
+                    peer_rel.data[u][entryname], port))
+
         name = job_name or \
             "{}".format(self._charm.app.name.replace("-", "_"))
         data = {

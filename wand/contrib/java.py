@@ -77,7 +77,7 @@ class JavaCharmBase(CharmBase):
         # Generate the keystores if cert/key exists
         for t in elems:
             if t[CERT] == t[GET_CERT]() and \
-               t[KEY] == t[KEY]():
+               t[KEY] == t[GET_KEY]():
                 # Certs and keys are the same
                 logger.info("Same certs and keys for {}".format(t[CERT]))
                 continue
