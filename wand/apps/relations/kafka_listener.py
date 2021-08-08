@@ -341,7 +341,12 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                 inter = r.data[r.app]["request"]
             else:
                 continue
-            req = json.loads(inter)
+            # In some situations, inter is coming with between ""
+            if inter[0] == "\"":
+                inter = inter[1:]
+            if inter[-1] == "\"":
+                inter = inter[:-1]
+            req = json.loads(inter.replace("\\\"", "\""))
             if not req:
                 # for the case req = {}
                 continue
