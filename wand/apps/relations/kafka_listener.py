@@ -378,7 +378,7 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
             listeners[listener_name]["plaintext_pwd"] = \
                 req["plaintext_pwd"]
             listeners[listener_name]["cert_present"] = \
-                len(req["cert"]) > 0
+                len(req.get("cert", "")) > 0
             listeners[listener_name]["sasl_present"] = \
                 "SASL" in req
             listeners[listener_name]["ts_path"] = self.ts_path
@@ -532,18 +532,31 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
         super().__init__(charm, relation_name, user, group, mode)
         self.state.set_default(is_public=False)
         self.state.set_default(request="{}")
-        self.set_plaintext_pwd(genRandomPassword())
+        if len(json.loads(self.request).get("plaintext_pwd", "")) > 0:
+            # Either password is empty or there is no password set.
+            # Set it in this case. Otherwise it will change every run.
+            self.set_plaintext_pwd(genRandomPassword())
 
     @property
     def request(self):
-        return self.state.request
+        # Seems that StoredState is converting the string of a json
+        # once again and results into a format:
+        # str = "{\"key\": \"value\"}"
+        logger.debug("kafka_listener: request loaded as {}"
+                     " and it is a string: {}".format(
+            self.state.request, isinstance(self.state.request, str)),
+            stack_info=True)
+        return copy.deepcopy(self.state.request)
 
     @request.setter
     def request(self, r):
+        logger.debug("kafka_listener: request changed to {}"
+                     " and is a string: {}".format(r, isinstance(r, str)),
+                     stack_info=True)
         self.state.request = r
 
     def set_plaintext_pwd(self, pwd):
-        req = json.loads(self.state.request) or {}
+        req = json.loads(self.request) or {}
         # changing relation data will trigger a -changed event on
         # the Provides side, which also triggers a relation data update.
         # That can lead to an infinite loop of changes.
@@ -551,11 +564,11 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
             if pwd == req["plaintext_pwd"]:
                 return
         req["plaintext_pwd"] = pwd
-        self.state.request = json.dumps(req)
+        self.request = json.dumps(req)
         self.set_request(req)
 
     def set_sasl(self, sasl):
-        req = json.loads(self.state.request) or {}
+        req = json.loads(self.request) or {}
         # changing relation data will trigger a -changed event on
         # the Provides side, which also triggers a relation data update.
         # That can lead to an infinite loop of changes.
@@ -563,11 +576,11 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
             if sasl == req["SASL"]:
                 return
         req["SASL"] = sasl
-        self.state.request = json.dumps(req)
+        self.request = json.dumps(req)
         self.set_request(req)
 
     def set_is_public(self, is_public):
-        req = json.loads(self.state.request) or {}
+        req = json.loads(self.request) or {}
         # changing relation data will trigger a -changed event on
         # the Provides side, which also triggers a relation data update.
         # That can lead to an infinite loop of changes.
@@ -575,7 +588,7 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
             if is_public == req["is_public"]:
                 return
         req["is_public"] = is_public
-        self.state.request = json.dumps(req)
+        self.request = json.dumps(req)
         self.set_request(req)
 
     def tls_client_auth_enabled(self):
@@ -590,7 +603,7 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
         # changing relation data will trigger a -changed event on
         # the Provides side, which also triggers a relation data update.
         # That can lead to an infinite loop of changes.
-        if j == self.state.request:
+        if j == self.request:
             return
         self.state.request = j
         self._set_request()
@@ -601,7 +614,10 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
         if not self.charm.unit.is_leader():
             return
         for r in self.relations:
-            r.data[self.charm.app]["request"] = self.state.request
+            if isinstance(self.request, str):
+                r.data[self.charm.app]["request"] = self.request
+            else:
+                r.data[self.charm.app]["request"] = json.dumps(self.request)
 
     def get_bootstrap_servers(self):
         if not self.relations:
@@ -640,14 +656,13 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
                      user=None,
                      group=None,
                      mode=None):
-        req = json.loads(self.state.request) or {}
+        req = json.loads(self.request) or {}
         req["cert"] = cert_chain
         self.set_request(req)
         super().set_TLS_auth(cert_chain, truststore_path,
                              truststore_pwd, user, group, mode)
 
     def on_listener_relation_joined(self, event):
-        self.set_request(self.request)
         self._get_all_tls_cert()
 
     def on_listener_relation_changed(self, event):
@@ -671,40 +686,41 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
             return None
         result[prefix + "security.protocol"] = v["secprot"]
 
-        if len(keystore_path) > 0:
+        if len(keystore_path) > 0 and v["cert_present"]:
             result[prefix + "ssl.key.password"] = keystore_pwd
             result[prefix + "ssl.keystore.location"] = keystore_path
             result[prefix + "ssl.keystore.password"] = keystore_pwd
             if clientauth:
                 result[prefix + "ssl.client.auth"] = "required"
-        if len(truststore_path) > 0:
+        if len(truststore_path) > 0 and v["cert_present"]:
             result[prefix + "ssl.truststore.location"] = truststore_path
             result[prefix + "ssl.truststore.password"] = truststore_pwd
 
-        sasl = v["SASL"]
-        result[prefix + "sasl.mechanism"] = v["SASL"]["protocol"]
-        if v["SASL"]["protocol"] == "OAUTHBEARER":
-            result[prefix + "sasl.jaas.config"] = sasl["jaas.config"]
-            if "confluent" in sasl:
-                if "login.callback" in sasl["confluent"]:
-                    result[prefix +
-                           "sasl.login.callback.handler.class"] = \
-                        sasl["confluent"]["login.callback"]
-                if "server.callback" in sasl["confluent"]:
-                    result[prefix +
-                           "sasl.server.callback"
-                           ".handler.class"] = \
-                        sasl["confluent"]["server.callback"]
-        elif v["SASL"]["protocol"] == "GSSAPI":
-            result[prefix +
-                   "sasl.jaas.config"] = \
-                'com.sun.security.auth.module.Krb5LoginModule ' + \
-                'required useKeyTab=true storeKey=true keyTab=' + \
-                '"/etc/security/keytabs/kafka_broker.keytab" ' + \
-                'principal="{}";'.format(
-                    sasl["kerberos-principal"])
-            result[prefix +
-                   "sasl.kerberos.service.name"] = \
-                sasl["kerberos-protocol"]
+        if v["sasl_present"]:
+            sasl = v["SASL"]
+            result[prefix + "sasl.mechanism"] = v["SASL"]["protocol"]
+            if v["SASL"]["protocol"] == "OAUTHBEARER":
+                result[prefix + "sasl.jaas.config"] = sasl["jaas.config"]
+                if "confluent" in sasl:
+                    if "login.callback" in sasl["confluent"]:
+                        result[prefix +
+                            "sasl.login.callback.handler.class"] = \
+                            sasl["confluent"]["login.callback"]
+                    if "server.callback" in sasl["confluent"]:
+                        result[prefix +
+                            "sasl.server.callback"
+                            ".handler.class"] = \
+                            sasl["confluent"]["server.callback"]
+            elif v["SASL"]["protocol"] == "GSSAPI":
+                result[prefix +
+                    "sasl.jaas.config"] = \
+                    'com.sun.security.auth.module.Krb5LoginModule ' + \
+                    'required useKeyTab=true storeKey=true keyTab=' + \
+                    '"/etc/security/keytabs/kafka_broker.keytab" ' + \
+                    'principal="{}";'.format(
+                        sasl["kerberos-principal"])
+                result[prefix +
+                    "sasl.kerberos.service.name"] = \
+                    sasl["kerberos-protocol"]
 
         return result if len(result) > 0 else None
