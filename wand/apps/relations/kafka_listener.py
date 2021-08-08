@@ -325,9 +325,9 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
         if not self.relations:
             # No relations available, return just the defaults
             # if defaults are True, otherwise return empty {}
-            return json.dumps(self._get_default_listeners(
-                keystore_path, keystore_pwd, clientauth)
-                    if get_default else {})
+            return self._get_default_listeners(
+                keystore_path, keystore_pwd, clientauth) \
+                    if get_default else {}
 
         listeners = {}
         # Leader sets the value
@@ -341,7 +341,7 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                 inter = r.data[r.app]["request"]
             else:
                 continue
-            req = json.loads(inter)
+            req = inter
             if not req:
                 # for the case req = {}
                 continue
@@ -383,7 +383,7 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
             listeners[listener_name]["clientauth"] = clientauth
         # update all the units
         self.listeners = copy.deepcopy(listeners)
-        return json.dumps(listeners)
+        return listeners
 
     def get_sasl_mechanisms_list(self):
         result = set()
@@ -399,7 +399,7 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
             "*BINDING*", get_hostname(self.binding_addr))
         listeners = listeners.replace(
             "*ADVERTISE*", get_hostname(self.advertise_addr))
-        listeners = json.loads(listeners)
+        listeners = listeners
         return listeners
 
     def get_ports(self):
@@ -515,8 +515,9 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
                     del data[k]["ks_pwd"]
             logger.debug("Listeners: set_bootstrap_data={}".format(listener))
             j = json.dumps(listener)
-            if j != r.data[self.unit].get("bootstrap-data", ""):
-                r.data[self.unit]["bootstrap-data"] = j
+            if j != json.dumps(r.data[self.unit].get("bootstrap-data", "{}")):
+                # set data
+                r.data[self.unit]["bootstrap-data"] = listener
 
 
 # Requirer is run on the charm clients connecting to kafka brokers
@@ -526,7 +527,7 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
                  user="", group="", mode=0):
         super().__init__(charm, relation_name, user, group, mode)
         self.state.set_default(is_public=False)
-        self.state.set_default(request="{}")
+        self.state.set_default(request={})
         self.set_plaintext_pwd(genRandomPassword())
 
     @property
@@ -538,7 +539,7 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
         self.state.request = r
 
     def set_plaintext_pwd(self, pwd):
-        req = json.loads(self.state.request) or {}
+        req = self.state.request or {}
         # changing relation data will trigger a -changed event on
         # the Provides side, which also triggers a relation data update.
         # That can lead to an infinite loop of changes.
@@ -546,11 +547,11 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
             if pwd == req["plaintext_pwd"]:
                 return
         req["plaintext_pwd"] = pwd
-        self.state.request = json.dumps(req)
+        self.state.request = req
         self.set_request(req)
 
     def set_sasl(self, sasl):
-        req = json.loads(self.state.request) or {}
+        req = self.state.request or {}
         # changing relation data will trigger a -changed event on
         # the Provides side, which also triggers a relation data update.
         # That can lead to an infinite loop of changes.
@@ -558,11 +559,11 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
             if sasl == req["SASL"]:
                 return
         req["SASL"] = sasl
-        self.state.request = json.dumps(req)
+        self.state.request = req
         self.set_request(req)
 
     def set_is_public(self, is_public):
-        req = json.loads(self.state.request) or {}
+        req = self.state.request or {}
         # changing relation data will trigger a -changed event on
         # the Provides side, which also triggers a relation data update.
         # That can lead to an infinite loop of changes.
@@ -570,7 +571,7 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
             if is_public == req["is_public"]:
                 return
         req["is_public"] = is_public
-        self.state.request = json.dumps(req)
+        self.state.request = req
         self.set_request(req)
 
     def tls_client_auth_enabled(self):
@@ -581,7 +582,7 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
         return False
 
     def set_request(self, req):
-        j = json.dumps(req)
+        j = req
         # changing relation data will trigger a -changed event on
         # the Provides side, which also triggers a relation data update.
         # That can lead to an infinite loop of changes.
@@ -610,7 +611,7 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
         for r in self.relations:
             for u in r.units:
                 try:
-                    req = json.loads(r.data[u]["bootstrap-data"])
+                    req = r.data[u]["bootstrap-data"]
                     endpoint = \
                         req[lst_name]["bootstrap_server"]
                 except KeyError:
@@ -625,7 +626,7 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
         for r in self.relations:
             for u in r.units:
                 if "bootstrap-data" in r.data[u]:
-                    j = json.loads(r.data[u]["bootstrap-data"])
+                    j = r.data[u]["bootstrap-data"]
                     return copy.deepcopy(j[lst_name])
 
     def set_TLS_auth(self,
@@ -635,7 +636,7 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
                      user=None,
                      group=None,
                      mode=None):
-        req = json.loads(self.state.request) or {}
+        req = self.state.request or {}
         req["cert"] = cert_chain
         self.set_request(req)
         super().set_TLS_auth(cert_chain, truststore_path,
