@@ -70,6 +70,7 @@ How to implement it:
 
 import copy
 import json
+import logging
 
 from ops.framework import (
     EventBase,
@@ -83,6 +84,8 @@ from charmhelpers.core.host import (
     service_restart,
     service_reload
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RestartEvent(EventBase):
@@ -149,9 +152,9 @@ class RestartEvent(EventBase):
             # Inform that restart has been successful
             return True
         else:
+            coordinator.release()
             # Still waiting for the lock to be granted.
             # Return False so this event can be deferred
-            coordinator.release()
             return False
 
 
@@ -172,6 +175,7 @@ class OpsCoordinator(Serial):
 
     def __init__(self):
         """Calls the super().__init__()"""
+        logger.debug("coordinator.OpsCoordinator created")
         super().__init__()
 
     def handle_locks(self, unit):
@@ -179,6 +183,7 @@ class OpsCoordinator(Serial):
         Check if the unit is the leader. If so, it must run the handle()
         at least once in the hooks so the locks can be correctly managed.
         """
+        logger.debug("coordinator.OpsCoordinator.handle_locks called")
         if not unit.is_leader():
             # Only the leader handles the locks
             return
@@ -193,6 +198,7 @@ class OpsCoordinator(Serial):
         be called at the begining of the method.
         handle() grants the locks to the units if ran by the leader.
         """
+        logger.debug("coordinator.OpsCoordinator.resume called")
         self.initialize()
         self.handle()
 
@@ -205,5 +211,6 @@ class OpsCoordinator(Serial):
         Therefore, release() should be called at the end of the method.
         It will release the lock if granted and flush the state to the file.
         """
+        logger.debug("coordinator.OpsCoordinator.release called")
         self._release_granted()
         self._save_state()

@@ -106,7 +106,7 @@ advertise_address:
     "plaintext_pwd": "",
     "secprot": "SASL_SSL",
     "SASL": {
-        "protocol": "oauthbearer"
+        "protocol": "oauthbearer",
         "publicKeyPath": <file-path>,
         "publicKey": base64-public-key,
         "confluent": {
@@ -302,7 +302,6 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
         }
         return listeners
 
-    # Only the leader runs this method.
     # Generates a string with the template dict
     # That template dict contains entries that should be replaced
     # on each node: *BINDING* and *ADVERTISE* for its respective
@@ -386,9 +385,45 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
             listeners[listener_name]["ks_path"] = keystore_path
             listeners[listener_name]["ks_pwd"] = keystore_pwd
             listeners[listener_name]["clientauth"] = clientauth
+            # Resolve SASL for the request:
+            if listeners[listener_name]["sasl_present"]:
+                prot = ""
+                if "protocol" in listeners[listener_name]["SASL"]:
+                    prot = listeners[listener_name]["SASL"]["protocol"]
+                if prot == "OAUTHBEARER" and \
+                   "mds-info" in self.relation.data[self.charm.app]:
+                    # mds info has been configured, load it
+                    sasl = listeners[listener_name]["SASL"]
+                    mds_info = self.relation.data[self.charm.app]["mds-info"]
+                    jaas_config = \
+                        "org.apache.kafka.common.security.oauthbearer." + \
+                        "OAuthBearerLoginModule required username=\"{}\"" + \
+                        " password=\"{}\" metadataServerUrls=\"{}\";"
+                    sasl["jaas.config"] = jaas_config.format(
+                        mds_info["username"], mds_info["password"],
+                        mds_info["mds_url"])
+                    sasl["confluent"]["login.callback"] = \
+                        mds_info["login.callback"]
+                    sasl["confluent"]["server.callback"] = \
+                        mds_info["server.callback"]
+
         # update all the units
         self.listeners = copy.deepcopy(listeners)
         return json.dumps(listeners)
+
+    def set_mds_enpoint(self, mds_url, mds_username, mds_password):
+        if not self.relations or not self.unit.is_leader():
+            return
+        for r in self.relations:
+            r.data[self.charm.app]["mds-info"] = json.dumps({
+                "mds_url": mds_url,
+                "username": mds_username,
+                "password": mds_password,
+                "login.callback": \
+                    "io.confluent.kafka.server.plugins.auth.token.TokenBearerServerLoginCallbackHandler", # noqa
+                "server.callback": \
+                    "io.confluent.kafka.server.plugins.auth.token.TokenBearerValidatorCallbackHandler" # noqa
+            })
 
     def get_sasl_mechanisms_list(self):
         result = set()
@@ -406,12 +441,6 @@ class KafkaListenerProvidesRelation(KafkaListenerRelation):
             "*ADVERTISE*", get_hostname(self.advertise_addr))
         listeners = json.loads(listeners)
         return listeners
-
-    def get_ports(self):
-        ports = []
-        for k, v in self.listeners.items():
-            ports.append(v["port"])
-        return ports
 
     def _generate_opts(self, _lst,
                        keystore_path,
@@ -649,6 +678,16 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
                     j = json.loads(r.data[u]["bootstrap-data"])
                     return copy.deepcopy(j[lst_name])
 
+    def get_mds_enpoint(self):
+        if not self.relations:
+            return
+        mds_info = []
+        for r in self.relations:
+            for u in r.units:
+                if "mds-info" in r.data[u]:
+                    mds_info.append(json.loads(r.data[u]["mds-info"]))
+        return mds_info
+
     def set_TLS_auth(self,
                      cert_chain,
                      truststore_path,
@@ -704,23 +743,23 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
                 if "confluent" in sasl:
                     if "login.callback" in sasl["confluent"]:
                         result[prefix +
-                            "sasl.login.callback.handler.class"] = \
+                               "sasl.login.callback.handler.class"] = \
                             sasl["confluent"]["login.callback"]
                     if "server.callback" in sasl["confluent"]:
                         result[prefix +
-                            "sasl.server.callback"
-                            ".handler.class"] = \
+                               "sasl.server.callback"
+                               ".handler.class"] = \
                             sasl["confluent"]["server.callback"]
             elif v["SASL"]["protocol"] == "GSSAPI":
                 result[prefix +
-                    "sasl.jaas.config"] = \
+                       "sasl.jaas.config"] = \
                     'com.sun.security.auth.module.Krb5LoginModule ' + \
                     'required useKeyTab=true storeKey=true keyTab=' + \
                     '"/etc/security/keytabs/kafka_broker.keytab" ' + \
                     'principal="{}";'.format(
                         sasl["kerberos-principal"])
                 result[prefix +
-                    "sasl.kerberos.service.name"] = \
+                       "sasl.kerberos.service.name"] = \
                     sasl["kerberos-protocol"]
 
         return result if len(result) > 0 else None
