@@ -839,6 +839,14 @@ class KafkaJavaCharmBase(JavaCharmBase):
                    "service_overrides": service_overrides or {},
                    "service_environment_overrides": service_environment_overrides or {} # noqa
                })
+        # Shortening the name
+        svc_override = service_environment_overrides
+        return {
+            "service_unit_overrides": service_unit_overrides or {},
+            "service_overrides": service_overrides or {},
+            "service_environment_overrides": svc_override or {},
+            "is_jmx_exporter_enabled": self.is_jmxexporter_enabled()
+        }
 
     def _render_jaas_conf(self, jaas_path="/etc/kafka/jaas.conf"):
         content = ""
