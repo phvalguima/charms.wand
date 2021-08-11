@@ -16,7 +16,6 @@ class KafkaConnectRelationNotUsedError(Exception):
     def __init__(self,
                  message="Connect relation not set."):
         super().__init__(message)
-        self.state.set_default(url="")
 
 
 class KafkaConnectRelation(KafkaRelationBase):
@@ -24,12 +23,13 @@ class KafkaConnectRelation(KafkaRelationBase):
     def __init__(self, charm, relation_name,
                  user="", group="", mode=0, hostname=None):
         super().__init__(charm, relation_name, user, group, mode)
+        self.state.set_default(url="")
 
     @property
-    def url(self):
+    def rest_url(self):
         return self.state.url
 
-    @url.setter
+    @rest_url.setter
     def url(self, u):
         self.state.url = u
 
@@ -48,23 +48,22 @@ class KafkaConnectProvidesRelation(KafkaConnectRelation):
                          hostname)
 
     @property
-    def url(self):
-        if not self.relations:
+    def rest_url(self):
+        if not self.relation:
             return None
-        for r in self.relations:
-            if len(r.data[self.model.app].get("url", "")) > 0:
-                return r.data[self.model.app]["url"]
+        if "url" not in self.relation.data[self.charm.app]:
+            return None
+        return self.relation.data[self.charm.app]["url"]
 
-    @url.setter
-    def url(self, u):
-        self.state.url = u
+    @rest_url.setter
+    def rest_url(self, u):
         if not self.unit.is_leader():
             return
         if not self.relations:
             return
-        for r in self.relations:
-            if u != r.data[self.model.app].get("url", ""):
-                r.data[self.model.app]["url"] = u
+        if "url" not in self.relation.data[self.charm.app]:
+            return None
+        self.relation.data[self.charm.app]["url"] = u
 
     def set_TLS_auth(self,
                      cert_chain,
@@ -95,12 +94,12 @@ class KafkaConnectRequiresRelation(KafkaConnectRelation):
         super().__init__(charm, relation_name, user, group, mode)
 
     @property
-    def url(self):
-        if not self.relations:
+    def rest_url(self):
+        if not self.relation:
             return None
-        for r in self.relations:
-            if len(r.data[r.app].get("url", "")) > 0:
-                return r.data[r.app]["url"]
+        if "url" not in self.relation.data[self.relation.app]:
+            return None
+        return self.relation.data[self.relation.app]["url"]
 
     def generate_configs(self,
                          ts_path,

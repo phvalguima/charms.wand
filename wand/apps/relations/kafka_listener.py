@@ -568,20 +568,10 @@ class KafkaListenerRequiresRelation(KafkaListenerRelation):
 
     @property
     def request(self):
-        # Seems that StoredState is converting the string of a json
-        # once again and results into a format:
-        # str = "{\"key\": \"value\"}"
-        logger.debug("kafka_listener: request loaded as {}"
-                     " and it is a string: {}".format(
-            self.state.request, isinstance(self.state.request, str)),
-            stack_info=True)
         return copy.deepcopy(self.state.request)
 
     @request.setter
     def request(self, r):
-        logger.debug("kafka_listener: request changed to {}"
-                     " and is a string: {}".format(r, isinstance(r, str)),
-                     stack_info=True)
         self.state.request = r
 
     def set_plaintext_pwd(self, pwd):
