@@ -57,6 +57,7 @@ class KafkaConnectProvidesRelation(KafkaConnectRelation):
 
     @url.setter
     def url(self, u):
+        self.state.url = u
         if not self.unit.is_leader():
             return
         if not self.relations:
@@ -100,10 +101,6 @@ class KafkaConnectRequiresRelation(KafkaConnectRelation):
         for r in self.relations:
             if len(r.data[r.app].get("url", "")) > 0:
                 return r.data[r.app]["url"]
-
-    @url.setter
-    def url(self, u):
-        self.state.url = u
 
     def generate_configs(self,
                          ts_path,
