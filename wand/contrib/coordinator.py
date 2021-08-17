@@ -13,6 +13,18 @@ Also implements the RestartEvent. This event should be emitted
 every time a restart is needed and will trigger the lock negotiation protocol
 across the peer relation.
 
+RestartEvent receives two arguments:
+ctx: a dictionary containing current context when the RestartEvent was issued.
+     this variable is not used in the restart logic itself, it is intended to
+     let the user optionally update its own context once the restart has been
+     done.
+
+services: a list of strings. It is the list of services to be restarted.
+
+It is important to understand that RestartEvent only restarts systemd services
+using the service_restart from Charmhelpers.
+
+
 How to implement it:
 
 
@@ -20,19 +32,60 @@ How to implement it:
 
         on = RestartCharmEvent()
 
-        def __init__(self, *args):
-            self.framework.observe(self.on.restart_event,
-                                   self.on_restart_event)
+        state = StoredState()
 
         def on_restart_event(self, event):
+
+            # OPTIONALLY: depending on how often RestartEvents are emitted,
+            #  there is a good chance several of the RestartEvents will be
+            #  stacked on top of each other.
+            #  One example, that can happen because this unit was waiting
+            #  for the lock to be released (if event.restart()) while
+            #  processing all the hooks. In this case,
+            #  several RestartEvents got stacked for the same lock.
+            #  This check will allow to run the first restart event and
+            #  discard subsequent events.
+            #  The check can be extended to a dictionary if event.services
+            #  change and get restarted independently.
+
+            if not self.state.need_restart:
+                # Discard all subsequent restart events.
+                return
+
+            # This is the logic that processes the restart
             if event.restart():
                 # Restart was successful, if the charm is keeping track
                 # of a context, that is the place it should be updated
                 self.state.config_state = event.ctx
+
+                # OPTIONALLY, set need_restart:
+                self.state.need_restart = False
             else:
                 # defer the RestartEvent as it is still waiting for the
                 # lock to be released.
                 event.defer()
+
+        ...
+
+        def __init__(self, *args):
+
+            ...
+
+            self.framework.observe(self.on.restart_event,
+                                   self.on_restart_event)
+
+            # Coordinator has logic that the leader unit should always run
+            # at start of hookenv and at its end. Therefore it should be
+            # called in __init__ and __del__, respectively.
+            self.coordinator = OpsCoordinator()
+            self.coordinator.resume()
+            # OPTIONALLY, set a need_restart flag. Check on_restart_event
+            # comments to better understand its use.
+            self.state.set_default(need_restart=False)
+
+        def __del__(self):
+            # Run the atexit hookenv logic
+            self.coordinator.release()
 
         ...
 
@@ -42,29 +95,15 @@ How to implement it:
             # store it in config_state
             ...
 
-            # _check_if_ready is an example of method
-            # Always gate the emitter of RestartEvent since it will trigger
-            # a wave of peer relation changes for lock negotiation.
-            # Context can be the configs to be pushed to the config files.
-            if _check_if_ready(ctx):
-                self.on.restart_event.emit(ctx, services=[svc to restart])
-            else:
-                # Restart logic has been ran and handle() has been called.
-                # There is nothing more to do regarding the locks
-                # However, if _check_if_ready is false, then the leader
-                # still needs to maange the locks
-                coordinator = OpsCoordinator()
-                coordinator.handle_locks(self.unit)
-        ...
-
-        def on_update_status(self, event):
-            ...
-            # Config Changed is always ran after each -relation hook, but
-            # not after the actual update_status. Here we ensure that
-            # handle_locks is always called.
-            coordinator = OpsCoordinator()
-            coordinator.handle_locks(self.unit)
-            ...
+            # Check if restart is needed. A context can be provided to be
+            # used in RestartEvent's processing.
+            # The self.services is a list of service names that will be
+            # restarted.
+            if _some_check_to_not_issue_too_many_restarts():
+                self.on.restart_event.emit(self.ctx, services=self.services)
+                # OPTIONALLY, set a flag that will signal if the process has
+                # already restarted or not, check the on_restart_event above.
+                self.state.need_restart = True
 
 """
 
