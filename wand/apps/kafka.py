@@ -258,6 +258,26 @@ class KafkaJavaCharmBaseNRPEMonitoring(Object):
                                self.on_nrpe_available)
         self.services = svcs
         self.endpoints = endpoints
+        # uses the StoredState from the parent class
+        self.nrpe.state.set_default(is_available=False)
+
+    def recommit_checks(self, svcs, endpoints):
+        """Once the relation is built and nrpe-available was already
+        executed. Run this method to: (1) clean existing checks; and
+        (2) submit new ones. That allows update checks following events
+        such as config changes.
+        """
+        # Update internal values:
+        self.svcs = svcs
+        self.endpoints = endpoints
+        if not self.nrpe.state.is_available:
+            # on_nrpe_available not yet called, just update internal
+            # values and return
+            return
+        # Reset checks
+        self.nrpe.state.checks = {}
+        # Rerun the logic to add checks
+        self.on_nrpe_available(None)
 
     def on_nrpe_available(self, event):
         # Deal with services list first:
@@ -274,9 +294,8 @@ class KafkaJavaCharmBaseNRPEMonitoring(Object):
                 continue
             hostname = e.split(":")[0]
             port = e.split(":")[1]
-            check_name = "check_{}_{}".format(
-                self.model.unit.name.replace("/", "_"),
-                hostname.replace(".", "_"))
+            check_name = "check_{}_port_{}".format(
+                self.model.unit.name.replace("/", "_"), port)
             self.nrpe.add_check(command=[
                 '/usr/lib/nagios/plugins/check_tcp',
                 '-H', hostname,
@@ -284,6 +303,7 @@ class KafkaJavaCharmBaseNRPEMonitoring(Object):
             ], name=check_name)
         # Save all new checks to filesystem and to Nagios
         self.nrpe.commit()
+        self.nrpe.state.is_available = True
 
 
 class KafkaCharmBaseMissingRelationError(Exception):
