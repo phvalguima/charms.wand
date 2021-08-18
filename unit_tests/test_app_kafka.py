@@ -55,6 +55,10 @@ Environment=\"KAFKA_HEAP_OPTS=-Xmx1g\"
 Environment=\"KAFKA_LOG4J_OPTS=-Dlog4j.configuration=file:/etc/kafka/zookeeper-log4j.properties\"
 Environment=\"LOG_DIR=/var/log/kafka\"
 Environment=\"KAFKA_OPTS=-Djdk.tls.ephemeralDHKeySize=2048 -Djava.security.auth.login.config=/etc/kafka/jaas.conf\"
+Environment="SCHEMA_REGISTRY_OPTS=-Djdk.tls.ephemeralDHKeySize=2048 -Djava.security.auth.login.config=/etc/kafka/jaas.conf"
+Environment="KSQL_OPTS=-Djdk.tls.ephemeralDHKeySize=2048 -Djava.security.auth.login.config=/etc/kafka/jaas.conf"
+Environment="KAFKAREST_OPTS=-Djdk.tls.ephemeralDHKeySize=2048 -Djava.security.auth.login.config=/etc/kafka/jaas.conf"
+Environment="CONTROL_CENTER_OPTS=-Djdk.tls.ephemeralDHKeySize=2048 -Djava.security.auth.login.config=/etc/kafka/jaas.conf"
 """  # noqa
 
 KERBEROS_SVC_ENV_OVERRIDE = """KAFKA_HEAP_OPTS: '-Xmx1g'

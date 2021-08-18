@@ -818,6 +818,19 @@ class KafkaJavaCharmBase(JavaCharmBase):
         else:
             service_environment_overrides["KAFKA_OPTS"] = \
                 '{}'.format(" ".join(kafka_opts))
+            # Now, ensure all the kafka charms have their OPTS set:
+            if "SCHEMA_REGISTRY_OPTS" not in service_environment_overrides:
+                service_environment_overrides["SCHEMA_REGISTRY_OPTS"] = \
+                    service_environment_overrides["KAFKA_OPTS"]
+            if "KSQL_OPTS" not in service_environment_overrides:
+                service_environment_overrides["KSQL_OPTS"] = \
+                    service_environment_overrides["KAFKA_OPTS"]
+            if "KAFKAREST_OPTS" not in service_environment_overrides:
+                service_environment_overrides["KAFKAREST_OPTS"] = \
+                    service_environment_overrides["KAFKA_OPTS"]
+            if "CONTROL_CENTER_OPTS" not in service_environment_overrides:
+                service_environment_overrides["CONTROL_CENTER_OPTS"] = \
+                    service_environment_overrides["KAFKA_OPTS"]
 
         # Even if service_overrides is not defined, User and Group need to be
         # correctly set if this option was passed to the charm.
