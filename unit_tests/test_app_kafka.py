@@ -10,6 +10,7 @@
 #  License for the specific language governing permissions and limitations
 #  under the License.
 
+import socket
 import builtins
 import unittest
 import logging
@@ -231,7 +232,7 @@ class TestAppKafka(unittest.TestCase):
         __cleanup()
 
     @patch.object(kafka.KafkaJavaCharmBase, "_render_krb5_conf")
-    @patch.object(kafka, "gethostname")
+    @patch.object(socket, "gethostname")
     @patch.object(kafka.KafkaJavaCharmBase, "set_folders_and_permissions")
     @patch.object(kafka, "render")
     @patch.object(kafka.KafkaJavaCharmBase, "is_ssl_enabled")
@@ -285,7 +286,7 @@ class TestAppKafka(unittest.TestCase):
         __cleanup()
 
     @patch.object(kafka.KafkaJavaCharmBase, "_render_krb5_conf")
-    @patch.object(kafka, "gethostname")
+    @patch.object(socket, "gethostname")
     @patch.object(kafka, "setFilePermissions")
     @patch.object(kafka.KafkaJavaCharmBase, "set_folders_and_permissions")
     def test_kerberos_jaas_config(self,
@@ -326,7 +327,7 @@ class TestAppKafka(unittest.TestCase):
             handle.write.assert_called_once_with(KERBEROS_JAAS_CONF)
 
     @patch.object(kafka, "render")
-    @patch.object(kafka, "gethostname")
+    @patch.object(socket, "gethostname")
     @patch.object(kafka, "setFilePermissions")
     @patch.object(kafka.KafkaJavaCharmBase, "set_folders_and_permissions")
     def test_kerberos_krb5_config(self,

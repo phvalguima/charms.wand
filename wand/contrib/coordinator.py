@@ -34,6 +34,20 @@ How to implement it:
 
         state = StoredState()
 
+        def check_restart_is_valid(self):
+            # The goal of this method is to check beyond the service_restart()
+            # if the service is actually functional. If yes, then let restart
+            # processing follow its normal path and drop the remaining events.
+            # Otherwise, it needs to take a different route. In this example,
+            # it will simply defer the event, but it could as well abandon
+            # it and block the unit with "restart failed", so the operator
+            # can be warned and take a counter-measure.
+
+            # ########################
+            # Do a check, e.g. try connecting to service endpoint
+            # ########################
+
+
         def on_restart_event(self, event):
 
             # OPTIONALLY: depending on how often RestartEvents are emitted,
@@ -58,8 +72,13 @@ How to implement it:
                 # of a context, that is the place it should be updated
                 self.state.config_state = event.ctx
 
-                # OPTIONALLY, set need_restart:
-                self.state.need_restart = False
+                if self.check_restart_is_valid():
+                    # OPTIONALLY, set need_restart:
+                    self.state.need_restart = False
+                else:
+                    # This restart failed at the check, defer it for retrial
+                    event.defer()
+                    return
             else:
                 # defer the RestartEvent as it is still waiting for the
                 # lock to be released.

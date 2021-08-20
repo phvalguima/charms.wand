@@ -48,13 +48,13 @@ final charm should use:
 
 """
 
+import time
 import base64
 import os
 import shutil
 import subprocess
 import logging
 import yaml
-from socket import gethostname
 import socket
 
 import pwd
@@ -338,6 +338,14 @@ class KafkaCharmBaseFeatureNotImplementedError(Exception):
         super().__init__(message)
 
 
+class KafkaCharmBaseFailedInstallation(Exception):
+
+    def __init__(self,
+                 message="An error occurred during installation: {}",
+                 error=""):
+        super().__init__(message.format(error))
+
+
 class KafkaJavaCharmBase(JavaCharmBase):
 
     LATEST_VERSION_CONFLUENT = "6.1"
@@ -410,7 +418,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
         # TODO(pguimaraes): check if domain variable below has len > 0
         # If not, get the IP of the default gateway and rosolve its fqdn
         hostname = "{}.{}".format(
-            gethostname(),
+            socket.gethostname(),
             self.config.get("kerberos-domain", ""))
 
         self._kerberos_principal = "{}/{}@{}".format(
@@ -453,6 +461,42 @@ class KafkaJavaCharmBase(JavaCharmBase):
                            self.config.get("group", "root"), 0o640)
         self.keytab = filename
 
+    def check_ports_are_open(self, endpoints,
+                             retrials=3, backoff=60):
+        """Check if a list of ports is open. Should be used with RestartEvent
+        processing. That way, one can separate the restart worked or not.
+
+        The idea is to iterate over the port list and check if they are all
+        open. If yes, return True. If not, wait for "backoff" seconds and
+        retry. If reached "retrials" and still not all the ports are open,
+        return False.
+
+        Args:
+        - endpoints: list of strings - endpoints in format hostname/IP:PORT
+        - retrials: Number of retries that will be executed
+        - backoff: Amount of time to wait after a failed trial, in seconds
+        """
+        for c in range(retrials):
+            success = True
+            for ep in endpoints:
+                sock = socket.socket(
+                    socket.AF_INET, socket.SOCK_STREAM)
+                port = int(ep.split(":")[1])
+                ip = ep.split(":")[0]
+                if sock.connect_ex((ip, port)) != 0:
+                    success = False
+                    break
+            if success:
+                # We were successful in checking each endpoint
+                return True
+            # Otherwise, we've failed, sleep for some time and retry
+            time.sleep(backoff)
+        return False
+
+    @property
+    def snap(self):
+        return "kafka"
+
     def install_packages(self, java_version, packages):
         """Install the packages passed as arguments."""
 
@@ -472,6 +516,39 @@ class KafkaJavaCharmBase(JavaCharmBase):
             apt_update()
         elif self.distro == "apache":
             raise Exception("Not Implemented Yet")
+        elif self.distro == "apache_snap":
+            # First, try to fetch the snap resource:
+            resource = None
+            try:
+                # Fetch a resource with the same name as the snap.
+                # Fetch raises a ModelError if not found
+                resource = self.model.resources.fetch(self.snap)
+                subprocess.check_output(
+                    ["snap", "install", "--dangerous", str(resource)])
+            except subprocess.CalledProcessError as e:
+                raise KafkaCharmBaseFailedInstallation(
+                    error=str(e))
+            except Exception:
+                # Failed to find a resource, next step is to try install
+                # from snapstore
+                resource = None
+            if not resource:
+                # Resource was not found, try install from upstream
+                try:
+                    subprocess.check_output(
+                        ["snap", "install", self.snap,
+                        "--channel={}".format(version)])
+                except subprocess.CalledProcessError as e:
+                    raise KafkaCharmBaseFailedInstallation(
+                        error=str(e))
+            # Install openjdk for keytool
+            super().install_packages(java_version, packages=[])
+            # Packages will be already in place for snap
+            # no need to run the logic below and setup folders
+            return
+
+        # Now, only package type distros are available
+        # Setup folders, permissions, etc
         super().install_packages(java_version, packages)
         folders = [
             "/etc/kafka",
@@ -796,7 +873,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
 
     def render_service_override_file(self,
                                      target,
-                                     jmx_file_name="prometheus.yaml"):
+                                     jmx_file_name="/opt/prometheus/prometheus.yaml"):
         service_unit_overrides = yaml.safe_load(
             self.config.get('service-unit-overrides', ""))
         service_overrides = yaml.safe_load(
@@ -826,7 +903,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
                     self.config.get("jmx-exporter-port", 9404),
                     self.JMX_EXPORTER_JAR_FOLDER + jmx_file_name))
             render(source="prometheus.yaml",
-                   target="/opt/prometheus/{}".format(jmx_file_name),
+                   target=jmx_file_name,
                    owner=self.config.get('user'),
                    group=self.config.get("group"),
                    perms=0o644,
