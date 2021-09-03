@@ -10,6 +10,17 @@
 #  License for the specific language governing permissions and limitations
 #  under the License.
 
+
+"""
+
+Implements tasks related to Java, such as installing openjdk and generating
+Keystores.
+
+JavaCharmBase defines the "ks" StoredState, which can be used by all its
+children classes.
+
+"""
+
 import logging
 
 from ops.charm import CharmBase
@@ -107,6 +118,8 @@ class JavaCharmBase(CharmBase):
     def install_packages(self,
                          java_version='openjdk-11-headless',
                          packages=[]):
+        """Installs openjdk and extra packages requested."""
+
         apt_update()
         apt_install(self.PACKAGE_LIST[java_version] +
                     self.EXTRA_PACKAGES +

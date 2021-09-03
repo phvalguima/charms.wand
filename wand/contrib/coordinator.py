@@ -2,6 +2,7 @@
 
 Implements the BaseCoordinator from Charmhelpers on Operator Framework.
 
+
 The OpsCoordinator subclasses Serial Coordinator. It masks the use of hookenv
 primitives to deal with Juju and exposes Events and methods to the other
 elements. This is possible because the BaseCoordinator does not use any of the
@@ -24,8 +25,13 @@ services: a list of strings. It is the list of services to be restarted.
 It is important to understand that RestartEvent only restarts systemd services
 using the service_restart from Charmhelpers.
 
+There is also an option to add a callback function in the coordinator. That
+allows the charm to report back after a restart, e.g. if it needs to share
+data across a relation after successful restart.
 
-How to implement it:
+
+
+HOW TO IMPLEMENT IT ON YOUR CHARM - BASICS:
 
 
     class CharmBaseSubclass(...):
@@ -123,6 +129,90 @@ How to implement it:
                 # OPTIONALLY, set a flag that will signal if the process has
                 # already restarted or not, check the on_restart_event above.
                 self.state.need_restart = True
+
+
+
+
+HOW TO IMPLEMENT IT ON YOUR CHARM - USE THE CALLBACK FUNCTION:
+
+
+    class CharmBaseSubclass(...):
+
+        on = RestartCharmEvent()
+
+        state = StoredState()
+
+        def check_restart_is_valid(self):
+            # The goal of this method is to check beyond the service_restart()
+            # if the service is actually functional. If yes, then let restart
+            # processing follow its normal path and drop the remaining events.
+            # Otherwise, it needs to take a different route. In this example,
+            # it will simply defer the event, but it could as well abandon
+            # it and block the unit with "restart failed", so the operator
+            # can be warned and take a counter-measure.
+
+            # ########################
+            # Do a check, e.g. try connecting to service endpoint
+            # ########################
+
+
+        def on_restart_event(self, event):
+
+            # OPTIONALLY: depending on how often RestartEvents are emitted,
+            #  there is a good chance several of the RestartEvents will be
+            #  stacked on top of each other.
+            #  One example, that can happen because this unit was waiting
+            #  for the lock to be released (if event.restart()) while
+            #  processing all the hooks. In this case,
+            #  several RestartEvents got stacked for the same lock.
+            #  This check will allow to run the first restart event and
+            #  discard subsequent events.
+            #  The check can be extended to a dictionary if event.services
+            #  change and get restarted independently.
+
+            if not self.state.need_restart:
+                # Discard all subsequent restart events.
+                return
+
+            # This is the logic that processes the restart
+            if event.restart():
+                # Restart was successful, if the charm is keeping track
+                # of a context, that is the place it should be updated
+                self.state.config_state = event.ctx
+
+                if self.check_restart_is_valid():
+                    # The check_restart_is_valid method confirmed the restart
+                    # has happened. Now, use the callback function:
+                    self.coordinator.run_action()
+
+                    # OPTIONALLY, set need_restart:
+                    self.state.need_restart = False
+
+                else:
+                    # This restart failed at the check, defer it for retrial
+                    event.defer()
+                    return
+            else:
+                # defer the RestartEvent as it is still waiting for the
+                # lock to be released.
+                event.defer()
+
+
+        .......
+
+        def config_changed(self, event):
+
+            ........
+            # Save a function call to be used as callback. As everything is
+            # happening within the same object (your charm), you can save a
+            # method for your class.
+            # my_method_to_be_called will be called as:
+            # my_method_to_be_called(*args, **kwargs)
+            self.coordinator.save_action(
+                my_method_to_be_called,
+                [list-of-args-to-be-parameters-of-the-call],
+                {dictionary-of-kwargs-to-be-parameters-of-the-call})
+
 
 """
 
@@ -226,15 +316,34 @@ class OpsCoordinator(Serial):
     """
     Implements the OpsCoordinator logic and subclasses Serial.
 
-    OpsCoordinator listens wraps around the charmhelpers Serial Coordinator
-    logic and provides a simple interface to manage locks. It implements the
+    OpsCoordinator wraps around the charmhelpers Serial Coordinator logic
+    and provides a simple interface to manage locks. It implements the
     logic that should used on atstart and atexit of hookenv.
     """
 
-    def __init__(self):
+    def __init__(self, action_func=None,
+                 action_args=[], action_kwargs={}):
         """Calls the super().__init__()"""
         logger.debug("coordinator.OpsCoordinator created")
         super().__init__()
+        self.action_func = None
+        self.action_args = []
+        self.action_kwargs = {}
+
+    def save_action(self, action_func=None,
+                    action_args=[], action_kwargs={}):
+        """Saves an action to be run later on. This action can be run at any
+        moment when processing Events."""
+        self.action_func = action_func
+        self.action_args = action_args or []
+        self.action_kwargs = action_kwargs or {}
+
+    def run_action(self):
+        """Runs the saved action and return its value."""
+        if self.action_func:
+            return self.action_func(
+                *self.action_args, **self.action_kwargs)
+        return None
 
     def handle_locks(self, unit):
         """

@@ -20,6 +20,17 @@ There are several common tasks that are contemplated here:
     * Render config files such as override.conf for services
     * Manage certificates relations or options
 
+Kafka can come from several distributions and versions. That can be selected
+using config options: "distro" and "version". Charms that inherit from this
+class should implement these configs.
+
+The Distro allows to select one between 3 options of Kafka packages:
+
+- Confluent:   uses confluent repos to install packages installs the confluent
+               stack, including confluent center. Please, check your permissio
+               to these packages and appropriate license.
+- Apache:      Uses Canonical ESM packages
+- Apache Snap: Uses snaps available in snapstore or uploaded as resources.
 
 To use it, Kafka charms must call the equivalent events such as:
 
@@ -108,6 +119,8 @@ from charmhelpers.core.hookenv import (
 
 logger = logging.getLogger(__name__)
 
+# To avoid having to add this template to each charm, generate from a
+# string instead.
 OVERRIDE_CONF = """{% if service_unit_overrides %}
 [Unit]
 {% for key, value in service_unit_overrides.items() %}
@@ -252,6 +265,7 @@ class KafkaJavaCharmBaseNRPEMonitoring(Object):
                 to be monitored by NRPE using check_tcp.
             nrpe_relation_name: str -> name of the relation
         """
+
         super().__init__(charm, nrpe_relation_name)
         self.nrpe = NRPEClient(charm, nrpe_relation_name)
         self.framework.observe(self.nrpe.on.nrpe_available,
@@ -349,19 +363,32 @@ class KafkaCharmBaseFailedInstallation(Exception):
 class KafkaJavaCharmBase(JavaCharmBase):
 
     LATEST_VERSION_CONFLUENT = "6.1"
-    JMX_EXPORTER_JAR_FOLDER = "/opt/prometheus/"
     JMX_EXPORTER_JAR_NAME = "jmx_prometheus_javaagent.jar"
 
     @property
     def unit_folder(self):
+        """Returns the unit's charm folder."""
+
         # Using as a method so we can also mock it on unit tests
         return os.getenv("JUJU_CHARM_DIR")
 
     @property
     def distro(self):
+        """Returns the distro option selected. Values accepted are:
+
+        - Confluent: will use packages coming from confluent repos
+        - Apache: uses Canonical's ESM version of kafka
+        - Apache Snap: uses snaps instead of packages.
+
+        Children classes should inherit and override this method with
+        their own method to load each of the three types above.
+        """
         return self.config.get("distro", "confluent").lower()
 
     def _get_service_name(self):
+        """To be overloaded: returns the name of the Kafka service this
+        charm must look after.
+        """
         return None
 
     def __init__(self, *args):
@@ -382,10 +409,19 @@ class KafkaJavaCharmBase(JavaCharmBase):
         # use it as part of the context in the config_changed
         self.keytab_b64 = ""
         self.services = [self.service]
+        self.JMX_EXPORTER_JAR_FOLDER = "/opt/prometheus/"
 
     def on_update_status(self, event):
         """ This method will update the status of the charm according
-            to the app's status"""
+            to the app's status
+
+        If the unit is stuck in Maintenance or Blocked, keep the status
+        as it is up to the operator to fix these.
+
+        If a child class will implement update-status logic, it must
+        call this method as the last task, so the status is correctly set.
+        """
+
         if isinstance(self.model.unit.status, MaintenanceStatus):
             # Log the fact the unit is already blocked and return
             logger.warn(
@@ -393,8 +429,18 @@ class KafkaJavaCharmBase(JavaCharmBase):
                 "status, with message {}, return".format(
                     self.model.unit.status.message))
             return
+        if isinstance(self.model.unit.status, BlockedStatus):
+            logger.warn(
+                "update-status called but unit is blocked, with "
+                "message: {}, return".format(
+                    self.model.unit.status.message
+                )
+            )
+
+        # Unit is neither Blocked, nor in Maintenance, start the checks.
         if not self.services:
             self.services = [self.service]
+
         svc_list = [s for s in self.services if not service_running(s)]
         if len(svc_list) == 0:
             self.model.unit.status = \
@@ -447,8 +493,31 @@ class KafkaJavaCharmBase(JavaCharmBase):
     def sasl_protocol(self, s):
         self._sasl_protocol = s
 
+    def add_certificate_action(self, certs):
+        """Adds certificates to self.ks.ssl_certs. This list should be
+        used to add custom certificates the entire stack needs to trust.
+
+        Args:
+        - certs: multi-line string containing certs in the format:
+        ------ BEGIN CERTIFICATE -------
+        <data>
+        ------ END CERTIFICATE -------
+        ------ BEGIN CERTIFICATE .......
+        <data>
+        ...
+        """
+        self.ks.ssl_certs.extend([
+            "-----BEGIN CERTIFICATE-----\n" + c for c in certs.split(
+                "-----BEGIN CERTIFICATE-----\n")])
+
+    def override_certificate_action(self):
+        """Empties out all the certs passed via action"""
+
+        self.ks.ss_certs = []
+
     def _upload_keytab_base64(self, k, filename="kafka.keytab"):
         """Receives the keytab in base64 format and saves to correct file"""
+
         filepath = "/etc/security/keytabs/{}".format(filename)
         self.set_folders_and_permissions(
             [os.path.dirname(filepath)],
@@ -495,6 +564,10 @@ class KafkaJavaCharmBase(JavaCharmBase):
 
     @property
     def snap(self):
+        """Returns the snap name if apache_snap is specified.
+
+        Must be overloaded by each child class to define its own snap name.
+        """
         return "kafka"
 
     def install_packages(self, java_version, packages):
@@ -537,7 +610,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
                 try:
                     subprocess.check_output(
                         ["snap", "install", self.snap,
-                        "--channel={}".format(version)])
+                         "--channel={}".format(version)])
                 except subprocess.CalledProcessError as e:
                     raise KafkaCharmBaseFailedInstallation(
                         error=str(e))
@@ -871,15 +944,27 @@ class KafkaJavaCharmBase(JavaCharmBase):
             return self.config.get("confluent_license_topic")
         return None
 
-    def render_service_override_file(self,
-                                     target,
-                                     jmx_file_name="/opt/prometheus/prometheus.yaml"):
+    def render_service_override_file(
+            self, target,
+            jmx_file_name="/opt/prometheus/prometheus.yaml"):
+        """Renders the service override.conf file.
+
+        Also manages parts that are related to override.conf and split
+        according to the selected distro: prometheus.yaml.
+        """
+
         service_unit_overrides = yaml.safe_load(
             self.config.get('service-unit-overrides', ""))
         service_overrides = yaml.safe_load(
             self.config.get('service-overrides', ""))
         service_environment_overrides = yaml.safe_load(
             self.config.get('service-environment-overrides', ""))
+        # Check if snap is in use, if so, set it correctly
+        if self.distro == "apache_snap":
+            self.JMX_EXPORTER_JAR_FOLDER = "/snap/kafka/current/jar/"
+            jmx_file_name = "/var/snap/kafka/common/prometheus.yaml"
+        else:
+            self.JMX_EXPORTER_JAR_FOLDER = "/opt/prometheus/"
 
         if "KAFKA_OPTS" not in service_environment_overrides:
             # Assume it will be needed, so adding it
@@ -901,7 +986,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
                 .format(
                     self.JMX_EXPORTER_JAR_FOLDER + self.JMX_EXPORTER_JAR_NAME,
                     self.config.get("jmx-exporter-port", 9404),
-                    self.JMX_EXPORTER_JAR_FOLDER + jmx_file_name))
+                    jmx_file_name))
             render(source="prometheus.yaml",
                    target=jmx_file_name,
                    owner=self.config.get('user'),
@@ -1003,6 +1088,9 @@ class KafkaJavaCharmBase(JavaCharmBase):
         return ctx
 
     def _on_config_changed(self, event):
+        """Implements the JAAS logic. Returns changes in config files.
+        """
+
         changed = {}
         if self.is_sasl_kerberos_enabled():
             changed["krb5_conf"] = self._render_krb5_conf()
