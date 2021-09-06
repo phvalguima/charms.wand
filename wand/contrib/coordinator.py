@@ -133,6 +133,8 @@ HOW TO IMPLEMENT IT ON YOUR CHARM - BASICS:
 
 
 
+***** EXPERIMENTAL *****
+
 HOW TO IMPLEMENT IT ON YOUR CHARM - USE THE CALLBACK FUNCTION:
 
 
@@ -255,7 +257,9 @@ class RestartEvent(EventBase):
         services: list of services
     """
 
-    def __init__(self, handle, ctx, services=[]):
+    def __init__(self,
+        handle, ctx, services=[]):
+
         super().__init__(handle)
         self._ctx = json.dumps(ctx)
         self._svc = copy.deepcopy(services)
@@ -280,14 +284,21 @@ class RestartEvent(EventBase):
     def svc(self):
         return self._svc
 
-    def restart(self):
+    def run_action(self):
+        """Runs the saved action and return its value."""
+        if self.action_func:
+            return self.action_func(
+                *self.action_args, **self.action_kwargs)
+        return None
+
+    def restart(self, coordinator):
         """
         The restart method manages the OpsCoordinator and requests for the
         locks. Once the lock is granted, run the restart on each of the
         services that have been passed.
         """
-        coordinator = OpsCoordinator()
-        coordinator.resume()
+#        coordinator = OpsCoordinator()
+#        coordinator.resume()
         if coordinator.acquire('restart'):
             for ev in self.svc:
                 # Unmask and enable service
@@ -296,11 +307,11 @@ class RestartEvent(EventBase):
                 service_reload(ev)
                 service_restart(ev)
             # Now that restart is done, save lock state and release it.
-            coordinator.release()
+#            coordinator.release()
             # Inform that restart has been successful
             return True
         else:
-            coordinator.release()
+#            coordinator.release()
             # Still waiting for the lock to be granted.
             # Return False so this event can be deferred
             return False

@@ -946,6 +946,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
 
     def render_service_override_file(
             self, target,
+            jmx_jar_folder="/opt/prometheus/",
             jmx_file_name="/opt/prometheus/prometheus.yaml"):
         """Renders the service override.conf file.
 
@@ -959,12 +960,6 @@ class KafkaJavaCharmBase(JavaCharmBase):
             self.config.get('service-overrides', ""))
         service_environment_overrides = yaml.safe_load(
             self.config.get('service-environment-overrides', ""))
-        # Check if snap is in use, if so, set it correctly
-        if self.distro == "apache_snap":
-            self.JMX_EXPORTER_JAR_FOLDER = "/snap/kafka/current/jar/"
-            jmx_file_name = "/var/snap/kafka/common/prometheus.yaml"
-        else:
-            self.JMX_EXPORTER_JAR_FOLDER = "/opt/prometheus/"
 
         if "KAFKA_OPTS" not in service_environment_overrides:
             # Assume it will be needed, so adding it
@@ -984,7 +979,7 @@ class KafkaJavaCharmBase(JavaCharmBase):
             kafka_opts.append(
                 "-javaagent:{}={}:{}"
                 .format(
-                    self.JMX_EXPORTER_JAR_FOLDER + self.JMX_EXPORTER_JAR_NAME,
+                    jmx_jar_folder + self.JMX_EXPORTER_JAR_NAME,
                     self.config.get("jmx-exporter-port", 9404),
                     jmx_file_name))
             render(source="prometheus.yaml",
