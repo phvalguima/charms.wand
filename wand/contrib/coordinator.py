@@ -257,8 +257,7 @@ class RestartEvent(EventBase):
         services: list of services
     """
 
-    def __init__(self,
-        handle, ctx, services=[]):
+    def __init__(self, handle, ctx, services=[]):
 
         super().__init__(handle)
         self._ctx = json.dumps(ctx)
@@ -297,8 +296,6 @@ class RestartEvent(EventBase):
         locks. Once the lock is granted, run the restart on each of the
         services that have been passed.
         """
-#        coordinator = OpsCoordinator()
-#        coordinator.resume()
         if coordinator.acquire('restart'):
             for ev in self.svc:
                 # Unmask and enable service
@@ -307,11 +304,9 @@ class RestartEvent(EventBase):
                 service_reload(ev)
                 service_restart(ev)
             # Now that restart is done, save lock state and release it.
-#            coordinator.release()
             # Inform that restart has been successful
             return True
         else:
-#            coordinator.release()
             # Still waiting for the lock to be granted.
             # Return False so this event can be deferred
             return False

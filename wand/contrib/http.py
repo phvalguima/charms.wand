@@ -1,14 +1,16 @@
 """
 
-Implement helpers around urllib to fetch or push 
+Implement helpers around urllib to fetch or push
 data for HTTP server.
 
 """
 
 import urllib
 
+
 def send_request(url, path, json_body, username, password):
-    """Send request with username and password. Leave json_body empty for a GET"""
+    """Send request with username and password.
+    Leave json_body empty for a GET"""
 
     password_mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
     password_mgr.add_password(None, url + path, username, password)

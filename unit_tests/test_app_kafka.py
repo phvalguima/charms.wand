@@ -131,6 +131,7 @@ class TestAppKafka(unittest.TestCase):
                          data_log_fs=None)
         mock_warning.assert_called()
 
+    @patch("os.makedirs")
     @patch.object(kafka, "subprocess")
     @patch.object(kafka, "setFilePermissions")
     @patch.object(kafka.KafkaJavaCharmBase, "set_folders_and_permissions")
@@ -143,7 +144,8 @@ class TestAppKafka(unittest.TestCase):
                               mock_java_inst_pkgs,
                               mock_set_folders_perms,
                               mock_set_file_perms,
-                              mock_subprocess_check):
+                              mock_subprocess_check,
+                              mock_os_makedirs):
 
         harness = Harness(kafka.KafkaJavaCharmBase)
         self.addCleanup(harness.cleanup)
@@ -187,6 +189,7 @@ class TestAppKafka(unittest.TestCase):
             data_fs=None)
         mock_warning.assert_called()
 
+    @patch("os.makedirs")
     @patch.object(kafka.KafkaJavaCharmBase, "set_folders_and_permissions")
     @patch.object(kafka, "render")
     @patch.object(kafka.KafkaJavaCharmBase, "is_sasl_kerberos_enabled")
@@ -195,7 +198,8 @@ class TestAppKafka(unittest.TestCase):
                                   mock_ssl_enabled,
                                   mock_krbs,
                                   mock_render,
-                                  mock_set_folder_perms):
+                                  mock_set_folder_perms,
+                                  mock_os_makedirs):
         def __cleanup():
             try:
                 os.remove("/tmp/13fnutest/13fnutest.service")
@@ -231,6 +235,7 @@ class TestAppKafka(unittest.TestCase):
         self.assertEqual(OVERRIDE_CONF, rendered)
         __cleanup()
 
+    @patch("os.makedirs")
     @patch.object(kafka.KafkaJavaCharmBase, "_render_krb5_conf")
     @patch.object(socket, "gethostname")
     @patch.object(kafka.KafkaJavaCharmBase, "set_folders_and_permissions")
@@ -241,7 +246,8 @@ class TestAppKafka(unittest.TestCase):
                                  mock_render,
                                  mock_set_folder_perms,
                                  mock_gethostname,
-                                 mock_render_krb5_conf):
+                                 mock_render_krb5_conf,
+                                 mock_os_makedirs):
         def __cleanup():
             try:
                 os.remove("/tmp/rnoetest/rnoetest.service")
@@ -285,6 +291,7 @@ class TestAppKafka(unittest.TestCase):
         self.assertEqual(KERBEROS_OVERRIDE_CONF, rendered)
         __cleanup()
 
+    @patch("os.makedirs")
     @patch.object(kafka.KafkaJavaCharmBase, "_render_krb5_conf")
     @patch.object(socket, "gethostname")
     @patch.object(kafka, "setFilePermissions")
@@ -293,7 +300,8 @@ class TestAppKafka(unittest.TestCase):
                                   mock_set_folder_perms,
                                   mock_set_files_perms,
                                   mock_gethostname,
-                                  mock_render_krb5_conf):
+                                  mock_render_krb5_conf,
+                                  mock_os_makedirs):
         mock_gethostname.return_value = "test"
         mock_set_files_perms.return_value = None
         harness = Harness(kafka.KafkaJavaCharmBase)
@@ -326,6 +334,7 @@ class TestAppKafka(unittest.TestCase):
             handle = m_open()
             handle.write.assert_called_once_with(KERBEROS_JAAS_CONF)
 
+    @patch("os.makedirs")
     @patch.object(kafka, "render")
     @patch.object(socket, "gethostname")
     @patch.object(kafka, "setFilePermissions")
@@ -334,7 +343,8 @@ class TestAppKafka(unittest.TestCase):
                                   mock_set_folder_perms,
                                   mock_set_files_perms,
                                   mock_gethostname,
-                                  mock_render):
+                                  mock_render,
+                                  mock_os_makedirs):
         mock_gethostname.return_value = "test"
         mock_set_files_perms.return_value = None
         harness = Harness(kafka.KafkaJavaCharmBase)

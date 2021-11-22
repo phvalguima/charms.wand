@@ -570,8 +570,15 @@ class KafkaJavaCharmBase(JavaCharmBase):
         """
         return "kafka"
 
-    def install_packages(self, java_version, packages):
-        """Install the packages passed as arguments."""
+    def install_packages(self, java_version, packages, snap_connect=None):
+        """Install the packages/snaps related to the chosen distro.
+
+        Args:
+        java_version: install the openjdk corresponding to that version
+        packages: package list to be installed
+        snap_connect: interfaces that need to be explicitly connected if snap
+                      option is chosen instead.
+        """
 
         MaintenanceStatus("Installing packages")
         version = self.config.get("version", self.LATEST_VERSION_CONFLUENT)
@@ -614,6 +621,15 @@ class KafkaJavaCharmBase(JavaCharmBase):
                 except subprocess.CalledProcessError as e:
                     raise KafkaCharmBaseFailedInstallation(
                         error=str(e))
+            try:
+                if snap_connect:
+                    for conn in snap_connect:
+                        subprocess.check_output(
+                            ["snap", "connect",
+                             "{}:{}".format(self.snap, conn)])
+            except subprocess.CalledProcessError as e:
+                raise KafkaCharmBaseFailedInstallation(
+                    error=str(e))
             # Install openjdk for keytool
             super().install_packages(java_version, packages=[])
             # Packages will be already in place for snap
@@ -851,7 +867,15 @@ class KafkaJavaCharmBase(JavaCharmBase):
         except LinuxGroupAlreadyExistsError:
             pass
         try:
-            userAdd(self.config["user"], group=self.config["group"])
+            home = "/home/{}".format(self.config["user"])
+            userAdd(
+                self.config["user"],
+                home=home,
+                group=self.config["group"])
+            os.makedirs(home, 0o755, exist_ok=True)
+            shutil.chown(home,
+                         user=self.config["user"],
+                         group=self.config["group"])
         except LinuxUserAlreadyExistsError:
             pass
 
@@ -947,11 +971,20 @@ class KafkaJavaCharmBase(JavaCharmBase):
     def render_service_override_file(
             self, target,
             jmx_jar_folder="/opt/prometheus/",
-            jmx_file_name="/opt/prometheus/prometheus.yaml"):
+            jmx_file_name="/opt/prometheus/prometheus.yaml",
+            extra_envvars=None):
         """Renders the service override.conf file.
 
-        Also manages parts that are related to override.conf and split
-        according to the selected distro: prometheus.yaml.
+        In the snap deployment, jmx will be placed on a /snap and
+        prometheus.yaml will be placed on /var/snap.
+
+        target: filepath for the override file
+        jmx_jar_folder: either /opt on confluent or /snap on apache_snap
+        jmx_file_name: either /opt on confluent or /var/snap for snap
+        extra_envvars: allows a charm to specify if any additional env
+                       vars should be added. This value will take priority
+                       over the config options and any configs set by this
+                       class.
         """
 
         service_unit_overrides = yaml.safe_load(
@@ -1008,6 +1041,9 @@ class KafkaJavaCharmBase(JavaCharmBase):
             if "CONTROL_CENTER_OPTS" not in service_environment_overrides:
                 service_environment_overrides["CONTROL_CENTER_OPTS"] = \
                     service_environment_overrides["KAFKA_OPTS"]
+        if extra_envvars:
+            for k, v in extra_envvars.items():
+                service_environment_overrides[k] = v
 
         # Even if service_overrides is not defined, User and Group need to be
         # correctly set if this option was passed to the charm.
