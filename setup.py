@@ -21,7 +21,7 @@ with open(version_file) as v:
 
 
 SETUP = {
-    'name': "charms.wand",
+    'name': "wand",
     'version': VERSION,
     'author': "phvalguima",
     'url': "https://github.com/phvalguima/charms.wand",
